@@ -1,115 +1,159 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-    margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+:root {
+  /* StandAIlone Industrial HMI palette */
+  --st-bg: #141416;
+  --st-panel: #1a1a1d;
+  --st-panel-raised: #222226;
+  --st-panel-deep: #0e0e10;
+  --st-border: #3f3f46;
+  --st-border-strong: #52525b;
+  --st-text: #f4f4f5;
+  --st-text-secondary: #a1a1aa;
+  --st-text-muted: #71717a;
+  --st-accent: #38bdf8;
+  --st-accent-deep: #0369a1;
+  --st-warning: #f59e0b;
+  --st-danger: #ef4444;
+  --st-safe: #10b981;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+html, body, #root {
+  background: var(--st-bg);
+  color: var(--st-text);
+  font-family: "Geist", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  min-height: 100vh;
+}
+
+::selection {
+  background: var(--st-accent);
+  color: #0b1118;
+}
+
+/* Shadcn dark theme tokens — bound to our palette */
+@layer base {
+  :root, .dark {
+    --background: 240 4% 9%;          /* #141416 */
+    --foreground: 240 5% 96%;         /* #f4f4f5 */
+    --card: 240 4% 11%;               /* #1a1a1d */
+    --card-foreground: 240 5% 96%;
+    --popover: 240 4% 11%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 199 89% 60%;           /* steel-blue */
+    --primary-foreground: 222 47% 8%;
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 240 5% 96%;
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 240 5% 96%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5% 26%;             /* #3f3f46 */
+    --input: 240 5% 22%;
+    --ring: 199 89% 60%;
+    --radius: 0.125rem;               /* sharp */
+  }
 }
 
 @layer base {
-    :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
-        --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
-        --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
-    }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
-    }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
 }
 
-@layer base {
-    * {
-        @apply border-border;
-    }
-    body {
-        @apply bg-background text-foreground;
-    }
+/* ------- Industrial utility classes ------- */
+
+.font-mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+.st-panel {
+  background: var(--st-panel);
+  border: 1px solid var(--st-border);
+}
+.st-panel-raised {
+  background: var(--st-panel-raised);
+  border: 1px solid var(--st-border);
+}
+.st-panel-deep {
+  background: var(--st-panel-deep);
+  border: 1px solid var(--st-border);
 }
 
-@layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
-
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+.st-panel-title {
+  font-family: "Geist", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--st-text-secondary);
 }
+
+.st-data-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--st-text-secondary);
+}
+
+.st-readout {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--st-text);
+}
+
+.st-grid-bg {
+  background-color: var(--st-bg);
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.st-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--st-border) 20%, var(--st-border) 80%, transparent);
+}
+
+/* Heatmap cells flash on update */
+@keyframes st-cell-flash {
+  0% { box-shadow: inset 0 0 0 1px rgba(56,189,248,0.9); }
+  100% { box-shadow: inset 0 0 0 1px transparent; }
+}
+.st-cell-flash { animation: st-cell-flash 600ms ease-out; }
+
+/* Marquee progress bar */
+@keyframes st-progress-stream {
+  0% { background-position: 0 0; }
+  100% { background-position: 24px 0; }
+}
+.st-progress-stream {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--st-accent) 0 6px,
+    var(--st-accent-deep) 6px 12px
+  );
+  background-size: 24px 24px;
+  animation: st-progress-stream 800ms linear infinite;
+}
+
+/* Scrollbars — industrial */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: var(--st-panel-deep); }
+*::-webkit-scrollbar-thumb { background: var(--st-border); }
+*::-webkit-scrollbar-thumb:hover { background: var(--st-border-strong); }
+
+/* Inputs use mono for numeric */
+input[type="number"], input[data-numeric="true"] {
+  font-family: "JetBrains Mono", monospace !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus rings — restrained */
+:focus-visible { outline: 1px solid var(--st-accent); outline-offset: 1px; }

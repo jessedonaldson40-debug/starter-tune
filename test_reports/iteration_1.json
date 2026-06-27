@@ -1,0 +1,39 @@
+{
+  "summary": "First-round full-stack testing of STANDAILONE Starter Tune Engine. Backend: 13/13 pytest API tests passed (root, predict-hp, ve-preview, safety-envelope, full generate, profiles CRUD, regenerate, compare, revert, all 4 exports, delete). Frontend: complete wizard flow Dashboard -> Intake (preset auto-fill) -> Safety -> Generate -> Review (slider regenerate w/ CHANGED indicator) -> Save -> Profile Detail (5 tabs, fuel/ignition heatmaps, AFR table, boost curve, AGGRESSIVE_TARGET banner, confidence badges) -> Export Panel (all 4 handoffs fire and toast confirms) -> Compare/Forensic view (diff heatmaps + side-by-side fuel maps render). Everything functional end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Wizard - Generate / Profile Detail charts", "issues": ["Recharts emits console warnings 'The width(-1) and height(-1) of chart should be greater than 0' on initial mount/transition. Visual rendering is fine after layout settles but the warning floods the console. Consider giving ResponsiveContainer a fixed aspect or minWidth/minHeight."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_starter_tune.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: fix Recharts ResponsiveContainer width/height(-1) warnings by giving the chart a minHeight or explicit aspect when its parent is hidden during step transitions.",
+    "Optional naming: review-request referenced test-ids 'input-profile-name', 'input-displacement', 'tab-tune-maps', 'tab-supporting', 'tab-safety', 'tab-export' and 'heatmap-cell-*'. Actual code uses 'profile-name-input', different displacement testid, and only 'tab-history' has a test-id; heatmap cells lack data-testid. Adding stable data-testid to heatmap cells and the tab triggers (tune-maps/supporting/safety/export) would make future automated testing more reliable. Functionally everything works."
+  ],
+  "critical_code_review_comments": [
+    "calibration.py build_fuel_map: variable 'fuel_density' is computed then explicitly discarded with '_ = fuel_density' — dead code. Either remove or wire into the formula.",
+    "calibration.py compute_safety_envelope: torque_baseline_nm is computed twice (the first formula's result is overwritten by the second). Remove the unused first computation.",
+    "server.py @app.on_event('shutdown') is deprecated in FastAPI; migrate to lifespan handlers.",
+    "server.py /api/profiles insert uses '{**profile}' then returns _strip_mongo(profile) — works because Motor mutates the original dict to inject _id. Safer pattern: 'await db.profiles.insert_one(dict(profile))' and return 'profile' unchanged.",
+    "ProfileDetail / Wizard add data-testid to per-cell heatmap elements (e.g. data-testid=heatmap-cell-{r}-{c}) and to tab triggers (tab-tune-maps, tab-supporting, tab-safety, tab-export) for resilient e2e automation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_starter_tune.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "Test profiles prefixed with TEST_ are created during pytest and cleaned up via fixture teardown. UI test created TEST_UIProfile (not deleted automatically — safe to leave).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All review-request behaviors verified. Re-use /app/backend/tests/test_starter_tune.py for regression. If main agent renames test-ids per recommendations above, run the wizard Playwright sequence again to confirm: dashboard -> wizard -> select-preset (Subaru EJ257) -> intake-next-btn -> safety-next-btn -> generate-next-btn -> tweak slider-afr-bias (ArrowLeft x4) -> wait 1.8s -> review-next-btn -> profile-name-input -> create-profile-btn -> profile detail -> open-export-btn -> all 4 export buttons -> open-compare-btn.",
+  "rca of the issue": "No bugs. All listed features pass."
+}
