@@ -160,9 +160,17 @@ def test_emergent_llm_key_present_in_env():
 
 
 def test_explain_endpoint_503_path_in_code():
-    """Static check: endpoint contains the 503 fallback for missing key."""
-    with open("/app/backend/server.py") as fh:
-        src = fh.read()
+    """Static check: endpoint contains the 503 fallback for missing key.
+
+    Round 5: explainer code was extracted to /app/backend/explainer.py. We now
+    accept the 503-path appearing in either server.py or explainer.py.
+    """
+    paths = ["/app/backend/server.py", "/app/backend/explainer.py"]
+    src = ""
+    for p in paths:
+        if os.path.exists(p):
+            with open(p) as fh:
+                src += fh.read()
     assert 'EMERGENT_LLM_KEY' in src
     assert '503' in src and 'EMERGENT_LLM_KEY not configured' in src
 
