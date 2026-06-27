@@ -1,0 +1,39 @@
+{
+  "summary": "Round 3 testing — export refactor regression, inspector report enrichment, AI Explainer SSE, ExportPanel UX, ExplainFinding UI. Found 1 bug in _export_inspector helper (missing engine_metadata + safety_envelope persistence) — fixed in place. Backend: 10/10 round3 + 9/9 round2 + 13/13 round1 = 32/32 pytest tests pass. Frontend: ExportPanel verified — modal stays open across 4 sequential exports (inspector → diagsim → forensic → ecu), SESSION ARTIFACTS list accumulates 4 rows, inspector button shows 'Run again' + ×1 badge after first run, ECU triggers JSON download with correct filename (TEST_R3_UI_2e89afba.ecuflash.json) and produces a row with DOWNLOAD button (not OPEN), clicking artifact-open-inspector-* closed modal and navigated to /inspector/{rid}. ExplainFinding verified — 5 finding cards, clicking explain-FUEL_SUB_MS_PW opened the inline panel with 'AI EXPLANATION · CLAUDE SONNET 4.6' header, streamed 920 chars of coherent English via SSE in <15s, RETRY button visible after completion.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_round3.py",
+    "/app/backend/tests/test_round2.py",
+    "/app/backend/tests/test_starter_tune.py",
+    "/app/test_reports/pytest/round3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIXED during this run: server.py _export_inspector was inserting the inspector report into db.inspector_reports WITHOUT engine_metadata and safety_envelope, while /profiles/{id}/inspector/audit did include them. The refactor regressed this contract. Added the two fields to the saved dict so deep-linked inspector reports from /export/inspector now match those from /inspector/audit (required for ExplainFinding to send engine context).",
+    "ExplainFinding.jsx: data-testid pattern 'explain-{CODE}' is also used as a prefix for the output container testid 'explain-{CODE}-output' — a CSS '[data-testid^=\"explain-\"]' selector matches BOTH. Non-blocking, but tests should use exact matches or differentiate prefixes (e.g. 'explain-out-{CODE}').",
+    "server.py explain_finding: uses lazy import inside the handler (fine), and properly escapes \\n for SSE. Consider also flushing/yielding a heartbeat every N tokens for proxies that buffer; current 'X-Accel-Buffering: no' header is correctly set.",
+    "ExportPanel.jsx is at 209 lines and reasonable; no need to split."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (added engine_metadata + safety_envelope to _export_inspector saved doc)",
+    "/app/backend/tests/test_round3.py (new file, 10 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32 pytest after fix)",
+    "frontend": "100% — all 4 sequential exports + ExplainFinding SSE streamed and rendered correctly"
+  },
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "pytest creates TEST_R3_Aggressive, TEST_R3_Lifecycle, TEST_R3_Forensic (auto cleaned up). UI run created TEST_R3_UI profile + 1 inspector report + 1 diagsim session + 1 forensic + 1 ecu export (left in DB, harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 3 iterations now pass cleanly (32/32 backend). Test files: /app/backend/tests/test_starter_tune.py (iter1), test_round2.py (iter2), test_round3.py (iter3). Run all: REACT_APP_BACKEND_URL=https://starter-tune-gen.preview.emergentagent.com python -m pytest /app/backend/tests/ -o 'addopts=' -v. For UI: create a profile via API and visit /profiles/{id} then click EXPORT/HANDOFF. Explain panel testid is 'explain-{CODE}' for button and 'explain-{CODE}-output' for inline output — avoid prefix-startswith selectors when locating only buttons.",
+  "rca of the issue": "Bug: _export_inspector helper omitted engine_metadata and safety_envelope when persisting the inspector_reports document, although /profiles/{id}/inspector/audit included them. Cause: when extracting the per-target helpers during the refactor, only the report body (**report) was spread into the saved dict — the two enrichment fields were lost. Fix: re-added both keys (intake + package['safety_envelope']) to the saved dict in _export_inspector. Verified with test_export_inspector_refactored. Impact pre-fix: ExplainFinding called from a deep-linked inspector report would not have engine context. Post-fix: contract matches /inspector/audit."
+}

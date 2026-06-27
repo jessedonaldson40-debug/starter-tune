@@ -3,8 +3,10 @@ import { Link, useParams } from "react-router-dom";
 import { Panel, PanelHeader } from "@/components/PanelHeader";
 import { getInspectorReport } from "@/lib/api";
 import WarningBanner from "@/components/WarningBanner";
+import ExplainFinding from "@/components/ExplainFinding";
 import { fmt } from "@/lib/format";
 import { ArrowLeft, FileSearch, ShieldCheck, AlertTriangle, AlertOctagon, Info } from "lucide-react";
+import { API } from "@/lib/api";
 
 const SEVERITY_TONE = {
   critical: { color: "#EF4444", bg: "#7F1D1D", Icon: AlertOctagon, label: "CRITICAL" },
@@ -138,7 +140,7 @@ export default function InspectorReport() {
                   <div className="flex items-start gap-3">
                     <Icon className="w-4 h-4 mt-1 shrink-0" style={{ color: tone.color }} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1">
+                      <div className="flex items-center gap-3 mb-1 flex-wrap">
                         <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: tone.color }}>
                           {tone.label}
                         </span>
@@ -148,6 +150,16 @@ export default function InspectorReport() {
                         <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--st-text-muted)]">
                           · {f.subsystem}
                         </span>
+                        <div className="ml-auto">
+                          <ExplainFinding
+                            finding={f}
+                            profileName={report.profile_name}
+                            engineMetadata={report.engine_metadata}
+                            safetyEnvelope={report.safety_envelope}
+                            apiBase={API}
+                            testId={`explain-${f.code}`}
+                          />
+                        </div>
                       </div>
                       <div className="text-sm text-[var(--st-text)] mb-2">{f.message}</div>
                       {f.remediation && (

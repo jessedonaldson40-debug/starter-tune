@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Activity, FileSearch, ScanLine, FileCog, ExternalLink, Download as DownloadIcon } from "lucide-react";
+import { Activity, FileSearch, ScanLine, FileCog, ExternalLink, Download as DownloadIcon, Check } from "lucide-react";
 import { exportProfile, listExportTargets } from "@/lib/api";
 import { toast } from "sonner";
 import { fmt } from "@/lib/format";
@@ -18,12 +18,19 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
   const [targets, setTargets] = useState({});
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(null);
-  const [artifact, setArtifact] = useState(null);
+  const [artifacts, setArtifacts] = useState([]);  // all artifacts produced this session
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!open) return;
     listExportTargets().then(setTargets).catch(() => {});
+  }, [open]);
+
+  // Reset when the modal is closed
+  useEffect(() => {
+    if (!open) {
+      setBusy(null);
+    }
   }, [open]);
 
   const downloadEcuArtifact = (art) => {
@@ -42,7 +49,7 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
     setBusy(key);
     try {
       const res = await exportProfile(profileId, key);
-      setArtifact(res);
+      setArtifacts((prev) => [res, ...prev]);
       setLog((prev) => [
         `[${fmt.date(res.generated_at)}] HANDOFF :: ${res.target_name}`,
         `  artifact_id     ${res.artifact_id}`,
@@ -59,25 +66,14 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
 
       if (key === "ecu") {
         downloadEcuArtifact(res);
-        toast.success("ECU artifact ready", {
-          description: "JSON file downloaded.",
+        toast.success("ECU artifact downloaded", {
+          description: `Saved ${res.artifact_id.slice(0, 8)}.ecuflash.json`,
         });
-      } else if (res.deep_link) {
-        toast.success(`${res.target_name} handoff complete`, {
-          description: "Opening session…",
-          action: {
-            label: "Open",
-            onClick: () => navigate(res.deep_link),
-          },
-        });
-        // Auto-navigate after short delay so user sees toast
-        setTimeout(() => {
-          onOpenChange(false);
-          navigate(res.deep_link);
-        }, 600);
       } else {
         toast.success(`${res.target_name} handoff complete`, {
-          description: `Artifact ${res.artifact_id.slice(0, 8)} created.`,
+          description: res.deep_link
+            ? "Click the OPEN button below to view, or run more handoffs."
+            : `Artifact ${res.artifact_id.slice(0, 8)} created.`,
         });
       }
     } catch (e) {
@@ -87,10 +83,16 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
     }
   };
 
+  const openArtifact = (art) => {
+    if (!art.deep_link) return;
+    onOpenChange(false);
+    navigate(art.deep_link);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl bg-[var(--st-panel)] border border-[var(--st-border)] rounded-none p-0" data-testid="export-panel">
-        <DialogHeader className="px-6 pt-6 pb-3 border-b border-[var(--st-border)]">
+      <DialogContent className="max-w-3xl bg-[var(--st-panel)] border border-[var(--st-border)] rounded-none p-0 max-h-[88vh] overflow-y-auto" data-testid="export-panel">
+        <DialogHeader className="px-6 pt-6 pb-3 border-b border-[var(--st-border)] sticky top-0 bg-[var(--st-panel)] z-10">
           <DialogTitle className="text-base font-medium tracking-tight">
             EXPORT / HANDOFF
           </DialogTitle>
@@ -103,6 +105,7 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
           {Object.entries(targets).map(([key, t]) => {
             const Icon = ICONS[key] || FileCog;
             const isEcu = key === "ecu";
+            const count = artifacts.filter((a) => a.target === key).length;
             return (
               <div key={key} className="st-panel-raised p-4 flex flex-col gap-3" data-testid={`export-target-${key}`}>
                 <div className="flex items-start gap-3">
@@ -110,7 +113,14 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
                     <Icon className="w-5 h-5 text-[var(--st-accent)]" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-[var(--st-text)] truncate">{t.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm text-[var(--st-text)] truncate">{t.name}</div>
+                      {count > 0 && (
+                        <span className="font-mono text-[9px] text-[var(--st-safe)] uppercase tracking-widest border border-[var(--st-safe)] px-1.5 py-0.5">
+                          ×{count}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-[var(--st-text-secondary)] mt-0.5">{t.description}</div>
                     <div className="font-mono text-[9px] text-[var(--st-text-muted)] uppercase tracking-wider mt-1">
                       FORMAT :: {t.format}
@@ -127,15 +137,62 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
                   {busy === key ? (
                     "HANDING OFF…"
                   ) : isEcu ? (
-                    <><DownloadIcon className="w-3.5 h-3.5 mr-2" /> Download Artifact</>
+                    <><DownloadIcon className="w-3.5 h-3.5 mr-2" /> {count > 0 ? "Re-download" : "Download Artifact"}</>
                   ) : (
-                    <><ExternalLink className="w-3.5 h-3.5 mr-2" /> Send to {t.name}</>
+                    <><ExternalLink className="w-3.5 h-3.5 mr-2" /> {count > 0 ? `Run again` : `Send to ${t.name}`}</>
                   )}
                 </Button>
               </div>
             );
           })}
         </div>
+
+        {/* Per-artifact action list — built up across the modal session */}
+        {artifacts.length > 0 && (
+          <div className="border-t border-[var(--st-border)] px-6 py-4 bg-[var(--st-panel)]" data-testid="artifact-actions-list">
+            <div className="st-data-label mb-2">SESSION ARTIFACTS · {artifacts.length}</div>
+            <div className="space-y-2">
+              {artifacts.map((a) => (
+                <div key={a.artifact_id}
+                     className="border border-[var(--st-border)] p-3 flex items-center justify-between gap-3"
+                     data-testid={`artifact-row-${a.target}-${a.artifact_id}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Check className="w-3.5 h-3.5 text-[var(--st-safe)] shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-mono text-[11px] uppercase tracking-widest text-[var(--st-text)] truncate">
+                        {a.target_name}
+                      </div>
+                      <div className="font-mono text-[10px] text-[var(--st-text-muted)] truncate">
+                        {a.artifact_id.slice(0, 8)} · {fmt.date(a.generated_at)}
+                      </div>
+                    </div>
+                  </div>
+                  {a.deep_link ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openArtifact(a)}
+                      data-testid={`artifact-open-${a.target}-${a.artifact_id}`}
+                      className="rounded-none border-[var(--st-accent)] text-[var(--st-accent)] hover:bg-[var(--st-accent-deep)]/30 font-mono text-[10px] uppercase tracking-widest h-7"
+                    >
+                      OPEN <ExternalLink className="w-3 h-3 ml-1.5" />
+                    </Button>
+                  ) : a.target === "ecu" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => downloadEcuArtifact(a)}
+                      data-testid={`artifact-download-${a.artifact_id}`}
+                      className="rounded-none border-[var(--st-border)] hover:border-[var(--st-accent)] hover:text-[var(--st-accent)] font-mono text-[10px] uppercase tracking-widest h-7"
+                    >
+                      DOWNLOAD <DownloadIcon className="w-3 h-3 ml-1.5" />
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="border-t border-[var(--st-border)] px-6 py-4 bg-[var(--st-panel-deep)]">
           <div className="st-data-label mb-2">HANDOFF LOG</div>
@@ -146,22 +203,6 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
 {log.length ? log.join("\n") : "[ idle ] no handoffs in this session"}
           </pre>
         </div>
-
-        {artifact && (
-          <div className="border-t border-[var(--st-border)] px-6 py-4 bg-[var(--st-panel)]">
-            <div className="st-data-label mb-2">LAST ARTIFACT</div>
-            <pre data-testid="export-artifact-preview" className="font-mono text-[10px] text-[var(--st-text-secondary)] max-h-40 overflow-auto bg-[var(--st-panel-deep)] p-3 border border-[var(--st-border)]">
-{JSON.stringify({
-  artifact_id: artifact.artifact_id,
-  target: artifact.target_name,
-  format: artifact.format,
-  deep_link: artifact.deep_link,
-  payload_keys: Object.keys(artifact.payload),
-  tune_summary: artifact.tune_summary,
-}, null, 2)}
-            </pre>
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );

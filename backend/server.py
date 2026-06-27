@@ -387,6 +387,8 @@ async def inspector_audit(profile_id: str) -> dict[str, Any]:
         "profile_name": doc["name"],
         "source_generation_index": active_idx,
         "created_at": _now_iso(),
+        "engine_metadata": intake,
+        "safety_envelope": package["safety_envelope"],
         **report,
     }
     await db.inspector_reports.insert_one({**saved})
@@ -415,6 +417,104 @@ async def list_export_targets() -> dict[str, Any]:
     return EXPORT_TARGETS
 
 
+# ---------------------------------------------------------------------------
+# Per-target export helpers — each builds (deep_link, real_payload) and
+# performs any persistence (DIAG-SIM session row, Inspector report row, etc.)
+# ---------------------------------------------------------------------------
+
+async def _export_diagsim(doc, package, intake, active_idx) -> tuple[Optional[str], dict[str, Any]]:
+    result = diagsim.simulate(package, intake, scenario="wot_pull")
+    session_id = str(uuid.uuid4())
+    session = {
+        "session_id": session_id,
+        "profile_id": doc["id"],
+        "profile_name": doc["name"],
+        "source_generation_index": active_idx,
+        "created_at": _now_iso(),
+        "intake_snapshot": intake,
+        "envelope_snapshot": package["safety_envelope"],
+        **result,
+    }
+    await db.diagsim_sessions.insert_one({**session})
+    return f"/diagsim/{session_id}", {
+        "session_id": session_id,
+        "scenario": result["scenario"],
+        "summary": result["summary"],
+        "fault_codes": result["fault_codes"],
+    }
+
+
+async def _export_inspector(doc, package, intake, active_idx) -> tuple[Optional[str], dict[str, Any]]:
+    report = inspector.audit(package, intake)
+    report_id = str(uuid.uuid4())
+    saved = {
+        "report_id": report_id,
+        "profile_id": doc["id"],
+        "profile_name": doc["name"],
+        "source_generation_index": active_idx,
+        "created_at": _now_iso(),
+        "engine_metadata": intake,
+        "safety_envelope": package["safety_envelope"],
+        **report,
+    }
+    await db.inspector_reports.insert_one({**saved})
+    return f"/inspector/{report_id}", {
+        "report_id": report_id,
+        "score": report["score"],
+        "subsystem_scores": report["subsystem_scores"],
+        "counts": report["counts"],
+        "top_findings": report["findings"][:5],
+    }
+
+
+async def _export_forensic(doc, package, intake, active_idx) -> tuple[Optional[str], dict[str, Any]]:
+    history_len = len(doc["history"])
+    profile_id = doc["id"]
+    if history_len < 2:
+        report = inspector.audit(package, intake)
+        return f"/profiles/{profile_id}/compare", {
+            "mode": "single_generation_audit",
+            "score": report["score"],
+            "findings_count": len(report["findings"]),
+        }
+    a_idx = max(0, active_idx - 1)
+    b_idx = active_idx
+    a = doc["history"][a_idx]["tune_package"]
+    b = doc["history"][b_idx]["tune_package"]
+    return f"/profiles/{profile_id}/compare", {
+        "mode": "two_generation_diff",
+        "a_index": a_idx,
+        "b_index": b_idx,
+        "fuel_diff": cal.compute_map_diff(a["fuel_map_ms"], b["fuel_map_ms"]),
+        "ignition_diff": cal.compute_map_diff(a["ignition_map_deg"], b["ignition_map_deg"]),
+    }
+
+
+async def _export_ecu(doc, package, intake, active_idx, artifact_id, info) -> tuple[Optional[str], dict[str, Any]]:
+    return None, {
+        "format": info["format"],
+        "rpm_axis": package["axes"]["rpm"],
+        "load_axis": package["axes"]["load_kpa"],
+        "fuel_map_ms": package["fuel_map_ms"],
+        "ignition_map_deg": package["ignition_map_deg"],
+        "afr_target_table": package["afr_target_table"],
+        "boost_target_table": package.get("boost_target_table"),
+        "idle_table": package["idle_table"],
+        "cold_start_table": package["cold_start_table"],
+        "safety_envelope": package["safety_envelope"],
+        "engine_metadata": intake,
+        "checksum_placeholder": artifact_id[:8].upper(),
+    }
+
+
+EXPORT_HANDLERS = {
+    "diagsim":   lambda doc, pkg, intake, idx, aid, info: _export_diagsim(doc, pkg, intake, idx),
+    "inspector": lambda doc, pkg, intake, idx, aid, info: _export_inspector(doc, pkg, intake, idx),
+    "forensic":  lambda doc, pkg, intake, idx, aid, info: _export_forensic(doc, pkg, intake, idx),
+    "ecu":       lambda doc, pkg, intake, idx, aid, info: _export_ecu(doc, pkg, intake, idx, aid, info),
+}
+
+
 @api_router.post("/profiles/{profile_id}/export/{target}")
 async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
     if target not in EXPORT_TARGETS:
@@ -427,96 +527,11 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
     package = doc["history"][active_idx]["tune_package"]
     intake = doc["engine_metadata"]
     info = EXPORT_TARGETS[target]
-
     artifact_id = str(uuid.uuid4())
-    deep_link: Optional[str] = None
-    real_payload: dict[str, Any]
 
-    # Each target invokes the REAL module (no longer a mock dump).
-    if target == "diagsim":
-        result = diagsim.simulate(package, intake, scenario="wot_pull")
-        session_id = str(uuid.uuid4())
-        session = {
-            "session_id": session_id,
-            "profile_id": profile_id,
-            "profile_name": doc["name"],
-            "source_generation_index": active_idx,
-            "created_at": _now_iso(),
-            "intake_snapshot": intake,
-            "envelope_snapshot": package["safety_envelope"],
-            **result,
-        }
-        await db.diagsim_sessions.insert_one({**session})
-        deep_link = f"/diagsim/{session_id}"
-        real_payload = {
-            "session_id": session_id,
-            "scenario": result["scenario"],
-            "summary": result["summary"],
-            "fault_codes": result["fault_codes"],
-        }
-
-    elif target == "inspector":
-        report = inspector.audit(package, intake)
-        report_id = str(uuid.uuid4())
-        saved = {
-            "report_id": report_id,
-            "profile_id": profile_id,
-            "profile_name": doc["name"],
-            "source_generation_index": active_idx,
-            "created_at": _now_iso(),
-            **report,
-        }
-        await db.inspector_reports.insert_one({**saved})
-        deep_link = f"/inspector/{report_id}"
-        real_payload = {
-            "report_id": report_id,
-            "score": report["score"],
-            "subsystem_scores": report["subsystem_scores"],
-            "counts": report["counts"],
-            "top_findings": report["findings"][:5],
-        }
-
-    elif target == "forensic":
-        history_len = len(doc["history"])
-        if history_len < 2:
-            # Single generation — produce an audit-against-self artifact
-            report = inspector.audit(package, intake)
-            real_payload = {
-                "mode": "single_generation_audit",
-                "score": report["score"],
-                "findings_count": len(report["findings"]),
-            }
-            deep_link = f"/profiles/{profile_id}/compare"
-        else:
-            a_idx = max(0, active_idx - 1)
-            b_idx = active_idx
-            a = doc["history"][a_idx]["tune_package"]
-            b = doc["history"][b_idx]["tune_package"]
-            real_payload = {
-                "mode": "two_generation_diff",
-                "a_index": a_idx,
-                "b_index": b_idx,
-                "fuel_diff": cal.compute_map_diff(a["fuel_map_ms"], b["fuel_map_ms"]),
-                "ignition_diff": cal.compute_map_diff(a["ignition_map_deg"], b["ignition_map_deg"]),
-            }
-            deep_link = f"/profiles/{profile_id}/compare"
-
-    else:  # ecu
-        real_payload = {
-            "format": info["format"],
-            "rpm_axis": package["axes"]["rpm"],
-            "load_axis": package["axes"]["load_kpa"],
-            "fuel_map_ms": package["fuel_map_ms"],
-            "ignition_map_deg": package["ignition_map_deg"],
-            "afr_target_table": package["afr_target_table"],
-            "boost_target_table": package.get("boost_target_table"),
-            "idle_table": package["idle_table"],
-            "cold_start_table": package["cold_start_table"],
-            "safety_envelope": package["safety_envelope"],
-            "engine_metadata": intake,
-            "checksum_placeholder": artifact_id[:8].upper(),
-        }
-        deep_link = None  # ECU is a downloadable JSON, no view route
+    deep_link, real_payload = await EXPORT_HANDLERS[target](
+        doc, package, intake, active_idx, artifact_id, info
+    )
 
     artifact = {
         "artifact_id": artifact_id,
@@ -558,6 +573,102 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
     )
 
     return artifact
+
+
+# ---------------------------------------------------------------------------
+# AI Explainer — streams a plain-English explanation of an Inspector finding
+# ---------------------------------------------------------------------------
+
+class ExplainFindingRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    finding: dict[str, Any]
+    profile_name: Optional[str] = None
+    engine_metadata: Optional[dict[str, Any]] = None
+    safety_envelope: Optional[dict[str, Any]] = None
+
+
+_EXPLAINER_SYSTEM = (
+    "You are a senior calibration engineer working alongside a tuner using the "
+    "STANDAILONE Starter Tune Engine. You will receive a single audit finding from "
+    "the Tune Inspector along with engine metadata and the active safety envelope. "
+    "Write a brief plain-English explanation aimed at an intermediate tuner: "
+    "(1) what the finding means in 1–2 sentences, "
+    "(2) why it matters mechanically (engine behaviour, risk), and "
+    "(3) one concrete next step the tuner can take. "
+    "Keep the entire response to 4–6 short sentences. Be precise, no hype, no emoji, "
+    "no marketing language. Use plain ASCII only. Do not restate the finding verbatim."
+)
+
+
+def _build_explainer_prompt(req: ExplainFindingRequest) -> str:
+    f = req.finding
+    parts = [
+        f"FINDING CODE: {f.get('code', 'UNKNOWN')}",
+        f"SEVERITY: {f.get('severity', '')}",
+        f"SUBSYSTEM: {f.get('subsystem', '')}",
+        f"MESSAGE: {f.get('message', '')}",
+        f"AUTOMATED REMEDIATION: {f.get('remediation', '')}",
+    ]
+    if f.get("cells"):
+        parts.append(f"AFFECTED CELLS: {len(f['cells'])} cells in the 16x16 grid.")
+    if req.engine_metadata:
+        e = req.engine_metadata
+        parts.append(
+            f"ENGINE: {e.get('displacement_l')}L {e.get('cylinders')}cyl "
+            f"{e.get('induction')} on {e.get('fuel_type')}, "
+            f"target {e.get('target_hp')} hp, rev limit {e.get('rev_limit')} rpm, "
+            f"injector {e.get('injector_cc')} cc, CR {e.get('compression_ratio')}."
+        )
+    if req.safety_envelope:
+        s = req.safety_envelope
+        parts.append(
+            f"ENVELOPE: AFR {s.get('afr_min')}-{s.get('afr_max')}, "
+            f"ignition ceiling {s.get('ignition_ceiling')} deg, "
+            f"boost ceiling {s.get('boost_ceiling_kpa')} kPa, "
+            f"knock {s.get('knock_sensitivity')}, thermal {s.get('thermal_risk')}."
+        )
+    return "\n".join(parts)
+
+
+@api_router.post("/inspector/findings/explain")
+async def explain_finding(req: ExplainFindingRequest):
+    """Streams the AI explanation back as Server-Sent Events."""
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+    from fastapi.responses import StreamingResponse
+
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(503, "EMERGENT_LLM_KEY not configured")
+
+    session_id = f"finding-{req.finding.get('code', 'X')}-{uuid.uuid4().hex[:6]}"
+    prompt = _build_explainer_prompt(req)
+
+    chat = LlmChat(
+        api_key=api_key,
+        session_id=session_id,
+        system_message=_EXPLAINER_SYSTEM,
+    ).with_model("anthropic", "claude-sonnet-4-6")
+
+    async def event_stream():
+        # Initial heartbeat so the client renders immediately
+        yield "event: meta\ndata: {\"model\":\"claude-sonnet-4-6\"}\n\n"
+        try:
+            async for ev in chat.stream_message(UserMessage(text=prompt)):
+                if isinstance(ev, TextDelta):
+                    # Escape newlines for SSE protocol
+                    safe = ev.content.replace("\r", "").replace("\n", "\\n")
+                    yield f"event: token\ndata: {safe}\n\n"
+                elif isinstance(ev, StreamDone):
+                    break
+        except Exception as e:
+            yield f"event: error\ndata: {str(e)[:200]}\n\n"
+        yield "event: done\ndata: end\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ============================================================================
