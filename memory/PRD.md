@@ -22,52 +22,33 @@ Build a production-grade full-stack web application module called STANDAILONE ST
 - Handoff to DIAG-SIM / Tune Inspector Pro / Forensic Inspector / ECU
 - Industrial / engineering UI (graphite + gunmetal, sharp corners, monospace technical readouts)
 
-## What's been implemented (2026-02 initial release + Round 2)
+## What's been implemented (2026-02 initial release + Round 2 + Round 3 polish)
+
+### Round 3 — UX polish + maintainability + AI Explainer
+- **ExportPanel UX (refactored)**: modal stays open through sequential exports. Each target card shows a count badge (×N) and switches to "Run again" / "Re-download" after first use. New SESSION ARTIFACTS panel accumulates every artifact created in the modal session with per-row OPEN/DOWNLOAD buttons. ECU continues to download as a local JSON.
+- **Backend `/export/{target}` refactor**: extracted per-target async helpers (`_export_diagsim`, `_export_inspector`, `_export_forensic`, `_export_ecu`) dispatched via `EXPORT_HANDLERS` map. Inspector saved documents now include `engine_metadata` + `safety_envelope` (parity with `/inspector/audit`).
+- **AI Explainer (NEW)**: `POST /api/inspector/findings/explain` streams a plain-English explanation of any audit finding from **Claude Sonnet 4.6** via SSE, using the Emergent Universal LLM key. Frontend `ExplainFinding` component is wired into each Inspector finding card with STOP / RETRY / × controls and a streaming cursor block.
 
 ### Backend (`/app/backend/`)
-- `calibration.py` — engineering core:
-  - VE curve estimator (parabolic torque-peak shifted by induction)
-  - AFR target table generator (stoich-anchored, fuel-aware, boost-aware enrichment)
-  - Fuel map (16x16 injector pulse width, ms) from VE × air-mass × AFR × injector flow
-  - Ignition map (16x16, deg BTDC) — MBT model with octane / CR / load / boost trim, hard-clamped by envelope ceiling
-  - **NEW (Round 2)**: knock-pull zone application (4×4 grid of additive ignition pulls, floored at 0°, applied AFTER envelope clamp)
-  - Boost target curve respecting spool RPM, envelope ceiling, taper at top
-  - Idle and cold-start tables vs coolant temp
-  - Safety envelope (AFR floor/ceiling, ignition ceiling, boost ceiling, torque baseline, knock & thermal risk, injector headroom @ 85% duty, warnings, confidence)
-  - Per-subsystem and overall confidence scoring
-  - Map diff with changed-cell count and max delta
-- **NEW `diagsim.py`** — real synthetic telemetry simulator:
-  - 4 scenarios: WOT pull, partial cruise, idle dwell, throttle tip-in
-  - Per-sample (50 Hz) RPM/MAP/TPS/AFR target+measured/timing/knock/IAT/ECT/boost from actual tune-map lookups + Gaussian sensor noise
-  - Knock probability model driven by load × octane deficit × timing headroom × IAT
-  - Fault code generation (P0325 knock, P0171/0172 fuel trim, P0234 overboost)
-- **NEW `inspector.py`** — real rules-based calibration auditor:
-  - Cell-level findings (sub-ms pulse, near-duty, over-envelope, AFR out of band, etc.)
-  - Severity-weighted scoring (0–100 overall + per-subsystem fuel/ignition/boost/safety)
-  - Prioritized remediation recommendations
+- `calibration.py` — engineering core (VE / fuel / ignition / boost / idle / cold-start / safety envelope / confidence / knock-pull zones)
+- `diagsim.py` — real synthetic telemetry simulator (4 scenarios, knock model, OBD-II fault codes)
+- `inspector.py` — real rules-based calibration auditor (severity-weighted 0–100 score, subsystem subscores, per-cell findings, prioritized remediation)
 - `server.py` — FastAPI routes under `/api`:
-  - `/starter-tune/predict-hp`, `/ve-preview`, `/safety-envelope`, `/generate` (now accepts `knock_pull_zones`)
-  - `/profiles` CRUD + `/regenerate` + `/revert/{idx}` + `/compare/{a}/{b}`
-  - **NEW**: `/diagsim/scenarios`, `/profiles/{id}/diagsim/run`, `/diagsim/sessions/{id}`, `/profiles/{id}/diagsim/sessions`
-  - **NEW**: `/profiles/{id}/inspector/audit`, `/inspector/reports/{id}`, `/profiles/{id}/inspector/reports`
-  - **UPDATED**: `/profiles/{id}/export/{target}` now invokes the **real** DIAG-SIM / Inspector modules (no mocks), returns `deep_link` to the dedicated session/report view
+  - `/starter-tune/*` — predict / VE / safety envelope / generate (with knock-pull zones)
+  - `/profiles/*` CRUD + regenerate + revert + compare
+  - `/diagsim/*` — scenarios list + run + session retrieval
+  - `/inspector/*` — audit + report retrieval
+  - `/export/{target}` — real handoffs to DIAG-SIM, Inspector, Forensic, ECU JSON (with deep_links)
+  - `/inspector/findings/explain` — SSE streaming AI explanation (Claude Sonnet 4.6)
 
 ### Frontend (`/app/frontend/src/`)
-- Industrial design system bound to shadcn dark tokens — Geist + JetBrains Mono, graphite (#141416) + gunmetal panels (#1A1A1D), steel borders, sharp 2px corners, amber/red reserved for warnings.
-- Pages:
-  - `Dashboard` — hero CTA, engine-coverage stats, profile cards
-  - `Wizard` — 5-step flow with persistent stepper (Intake → Safety → Generate → Review → Save)
-  - `ProfileDetail` — tabs for Tune Maps / Supporting Tables / Safety Envelope / Generation History / Export Log (now also lists DIAG-SIM sessions + Inspector reports as deep links)
-  - `CompareView` — Forensic compare with diff heatmaps and side-by-side panels
-  - **NEW `DiagSimSession`** — telemetry session view with scenario picker, 6 metric cards, fault-code banners, and 4 multi-axis charts (RPM/MAP/TPS, AFR target vs measured, ignition command with envelope-ceiling reference line, IAT/ECT/boost)
-  - **NEW `InspectorReport`** — audit report view with circular score gauge, severity counters, 4 subsystem score bars, prioritized recommendations, and detailed finding cards (severity, code, subsystem, message, remediation, affected cells)
-- Components: `Heatmap` (Viridis fuel / Diverging ignition / Diverging delta), `WizardStepper`, `WarningBanner`, `ConfidenceBadge`, `ExportPanel`, `PanelHeader`, **NEW `KnockPullEditor`** (4×4 zone grid with presets, flame indicators, range labels, debounced live regenerate)
-- ExportPanel now invokes real backend modules and **auto-navigates** to the DIAG-SIM session / Inspector report deep link after handoff (ECU artifact still downloads as a JSON file).
+- Industrial design system: Geist + JetBrains Mono, graphite (#141416) + gunmetal panels, sharp 2px corners, amber/red reserved for warnings
+- Pages: `Dashboard`, `Wizard` (5 steps with KnockPullEditor in Review), `ProfileDetail` (5 tabs incl. DIAG-SIM sessions + Inspector reports lists), `CompareView`, `DiagSimSession` (telemetry charts), `InspectorReport` (score gauge + findings with AI Explain)
+- Components: `Heatmap`, `WizardStepper`, `WarningBanner`, `ConfidenceBadge`, `ExportPanel` (session artifacts list), `KnockPullEditor` (4×4 zone grid), `ExplainFinding` (SSE consumer with AbortController)
 
 ### Verified flows (testing agent — Feb 2026)
-- **Round 2: 22/22 backend pytest tests pass** (iteration 1 + 2 combined). DIAG-SIM session, Inspector audit, knock-pull propagation, real export deep links all validated.
-- Full Playwright wizard run including KnockPullEditor preset application and live ignition-map propagation verified.
-- ECU artifact download verified.
+- **32/32 backend pytest tests pass** across iterations 1+2+3.
+- All UI flows verified end-to-end: wizard with knock-pull preset, profile detail tabs, 4 sequential exports in a single modal session, ECU JSON download with correct filename, AI Explainer streaming 920 chars in <15s with RETRY/STOP controls.
 
 ## Prioritized backlog
 
