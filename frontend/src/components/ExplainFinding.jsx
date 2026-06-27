@@ -96,7 +96,7 @@ export default function ExplainFinding({
       <button
         type="button"
         onClick={run}
-        data-testid={testId || "explain-finding-btn"}
+        data-testid={testId ? `${testId}-btn` : "explain-finding-btn"}
         className="font-mono text-[10px] uppercase tracking-widest text-[var(--st-accent)] hover:text-[#7dd3fc] border border-[var(--st-accent)] px-2 py-1 flex items-center gap-1.5 transition-colors"
       >
         <Sparkles className="w-3 h-3" /> Explain this finding
@@ -107,7 +107,7 @@ export default function ExplainFinding({
   return (
     <div
       className="mt-3 border border-[var(--st-accent)] bg-[var(--st-panel-deep)] p-3"
-      data-testid={testId ? `${testId}-output` : "explain-output"}
+      data-testid={testId ? `${testId}-out` : "explain-out"}
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">

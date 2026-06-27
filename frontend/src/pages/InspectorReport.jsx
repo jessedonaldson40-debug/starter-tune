@@ -157,7 +157,7 @@ export default function InspectorReport() {
                             engineMetadata={report.engine_metadata}
                             safetyEnvelope={report.safety_envelope}
                             apiBase={API}
-                            testId={`explain-${f.code}`}
+                            testId={`explain-${f.code}-${i}`}
                           />
                         </div>
                       </div>

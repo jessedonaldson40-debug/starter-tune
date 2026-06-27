@@ -632,7 +632,12 @@ def _build_explainer_prompt(req: ExplainFindingRequest) -> str:
 
 @api_router.post("/inspector/findings/explain")
 async def explain_finding(req: ExplainFindingRequest):
-    """Streams the AI explanation back as Server-Sent Events."""
+    """Streams the AI explanation back as Server-Sent Events.
+
+    Includes an in-memory LRU cache keyed by finding code + engine context hash:
+    repeat clicks within the cache window replay cached tokens instantly without
+    invoking the LLM. The cache holds up to 64 entries.
+    """
     from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
     from fastapi.responses import StreamingResponse
 
@@ -640,28 +645,52 @@ async def explain_finding(req: ExplainFindingRequest):
     if not api_key:
         raise HTTPException(503, "EMERGENT_LLM_KEY not configured")
 
-    session_id = f"finding-{req.finding.get('code', 'X')}-{uuid.uuid4().hex[:6]}"
+    cache_key = _explain_cache_key(req)
+    cached = _explain_cache.get(cache_key)
     prompt = _build_explainer_prompt(req)
-
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=session_id,
-        system_message=_EXPLAINER_SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-4-6")
 
     async def event_stream():
         # Initial heartbeat so the client renders immediately
-        yield "event: meta\ndata: {\"model\":\"claude-sonnet-4-6\"}\n\n"
+        yield "event: meta\ndata: {\"model\":\"claude-sonnet-4-6\",\"cached\":" + ("true" if cached else "false") + "}\n\n"
+
+        if cached:
+            # Replay cached tokens in small chunks so the UI shows the streaming effect
+            text = cached
+            chunk = 32
+            for i in range(0, len(text), chunk):
+                piece = text[i:i + chunk].replace("\r", "").replace("\n", "\\n")
+                yield f"event: token\ndata: {piece}\n\n"
+            yield "event: done\ndata: end\n\n"
+            return
+
+        # Live LLM call — accumulate tokens for the cache and emit periodic pings
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"finding-{req.finding.get('code', 'X')}-{uuid.uuid4().hex[:6]}",
+            system_message=_EXPLAINER_SYSTEM,
+        ).with_model("anthropic", "claude-sonnet-4-6")
+
+        accumulated: list[str] = []
+        token_count = 0
+        HEARTBEAT_EVERY = 8
+
         try:
             async for ev in chat.stream_message(UserMessage(text=prompt)):
                 if isinstance(ev, TextDelta):
-                    # Escape newlines for SSE protocol
+                    accumulated.append(ev.content)
                     safe = ev.content.replace("\r", "").replace("\n", "\\n")
                     yield f"event: token\ndata: {safe}\n\n"
+                    token_count += 1
+                    if token_count % HEARTBEAT_EVERY == 0:
+                        yield "event: ping\ndata: keepalive\n\n"
                 elif isinstance(ev, StreamDone):
                     break
         except Exception as e:
             yield f"event: error\ndata: {str(e)[:200]}\n\n"
+
+        full = "".join(accumulated).strip()
+        if full:
+            _explain_cache_put(cache_key, full)
         yield "event: done\ndata: end\n\n"
 
     return StreamingResponse(
@@ -669,6 +698,51 @@ async def explain_finding(req: ExplainFindingRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# AI explanation cache — bounded LRU keyed by finding code + context hash
+# ---------------------------------------------------------------------------
+
+from collections import OrderedDict
+import hashlib
+import json as _json
+
+_EXPLAIN_CACHE_MAX = 64
+_explain_cache: "OrderedDict[str, str]" = OrderedDict()
+
+
+def _explain_cache_key(req: ExplainFindingRequest) -> str:
+    f = req.finding or {}
+    ctx = {
+        "code": f.get("code"),
+        "message": f.get("message"),
+        "remediation": f.get("remediation"),
+        "engine": req.engine_metadata or {},
+        "env": req.safety_envelope or {},
+    }
+    blob = _json.dumps(ctx, sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+
+def _explain_cache_put(key: str, value: str) -> None:
+    if key in _explain_cache:
+        _explain_cache.move_to_end(key)
+    _explain_cache[key] = value
+    while len(_explain_cache) > _EXPLAIN_CACHE_MAX:
+        _explain_cache.popitem(last=False)
+
+
+@api_router.get("/inspector/explain-cache/stats")
+async def explain_cache_stats() -> dict[str, Any]:
+    return {"entries": len(_explain_cache), "max": _EXPLAIN_CACHE_MAX}
+
+
+@api_router.delete("/inspector/explain-cache")
+async def explain_cache_clear() -> dict[str, Any]:
+    n = len(_explain_cache)
+    _explain_cache.clear()
+    return {"cleared": n}
 
 
 # ============================================================================

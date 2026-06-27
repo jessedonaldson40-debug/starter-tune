@@ -1,0 +1,31 @@
+{
+  "summary": "Round 4 testing — three polish items: (1) ExplainFinding testid prefix alignment (-btn vs -out), (2) in-memory LRU cache for AI explanations keyed by finding+context hash, (3) SSE heartbeat ping every 8 tokens during live streaming. Backend: 38/38 pytest tests pass (13+9+10+6). 6 new Round-4 tests all green: first call uncached & slow (>1s), second call cached & fast (<2s) with byte-for-byte identical text, cache key isolation on different engine_metadata, /api/inspector/explain-cache/stats returns {entries,max:64}, DELETE clears (and reports cleared count), and >=1 'event: ping' frame appears in live stream. Frontend: all 5 finding cards in InspectorReport now expose buttons with testids ending in '-btn' (e.g. explain-FUEL_SUB_MS_PW-0-btn) and output containers ending in '-out' (explain-FUEL_SUB_MS_PW-0-out). Zero testids violate the pattern. Selectors [data-testid$='-btn'] and [data-testid$='-out'] cleanly separate buttons from outputs. UI cache UX verified: first explain took 10.6s, after × close + re-click the cached replay completed in 1.6s (~6.6x speedup) with the same content rendered.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_round4.py",
+    "/app/backend/tests/test_round3.py",
+    "/app/backend/tests/test_round2.py",
+    "/app/backend/tests/test_starter_tune.py",
+    "/app/test_reports/pytest/round4_results.xml",
+    "/app/test_reports/pytest/all_round4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 765 lines — getting close to the 700-line guideline. Cache helpers (_explain_cache_key, _explain_cache_put, OrderedDict + GET/DELETE endpoints) and the explainer endpoint could be split into a dedicated /app/backend/explainer.py module for cleanliness. Non-blocking.",
+    "Cache key uses sha1 of json.dumps(... default=str). Acceptable for short-lived process cache; not collision-sensitive at 64 entries.",
+    "Heartbeat 'event: ping' frames are correctly emitted every 8 tokens; the frontend ExplainFinding.jsx safely ignores any event != token/error/done so ping frames are silently dropped (verified visually — no UI artefacts).",
+    "Cache is process-local and lost on backend restart — acknowledged in code comment and acceptable per spec.",
+    "Minor: import block for OrderedDict/hashlib/json placed AFTER the explain_finding route handler. Functionally OK because the handler resolves names at call-time and the imports execute at module load (before any request), but stylistically these belong at the top of the file."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_round4.py (new file, 6 tests)"
+  ],
+  "success_rate": {"backend": "100% (38/38 pytest, including 6 new round-4)", "frontend": "100% — testid alignment + cache UX both verified visibly"},
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "Round-4 pytest creates and reuses one finding-payload context (cache fills to 2 entries before clear). UI run created TEST_R4_UI profile + 1 inspector report (left in DB, harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 iterations now pass cleanly (38/38 backend). Test files: test_starter_tune.py (iter1, 13), test_round2.py (iter2, 9), test_round3.py (iter3, 10), test_round4.py (iter4, 6). Run all: export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) && python -m pytest /app/backend/tests/ -o 'addopts=' -v. ExplainFinding component testids are now '{testId}-btn' (button, default closed state) and '{testId}-out' (inline output container). InspectorReport passes testId='explain-{CODE}-{i}'. Frontend silently ignores meta/ping/unknown SSE events.",
+  "rca of the issue": "N/A — no bugs found. All three polish items work as specified."
+}
