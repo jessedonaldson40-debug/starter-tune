@@ -1,0 +1,150 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) - Modified for Industrial HMI",
+  "domain": "Automotive Engine Calibration & Telemetry",
+  "design_philosophy": "This is a serious, production-grade engineering tool. The interface mimics physical calibration equipment (MoTeC i2, oscilloscopes). Minimalist, data-dense, highly restrained color palette. No neon, no generic SaaS rounded corners. Every pixel serves a functional purpose.",
+  "color_tokens": {
+    "background": {
+      "base": "#141416",
+      "description": "Deep graphite, prevents OLED smear and reduces eye strain."
+    },
+    "surface": {
+      "panel": "#1A1A1D",
+      "panel_raised": "#222226",
+      "description": "Gunmetal/steel panels for separating data zones."
+    },
+    "border": {
+      "default": "#3F3F46",
+      "highlight": "#52525B",
+      "description": "Subtle 1px steel grid lines."
+    },
+    "text": {
+      "primary": "#F4F4F5",
+      "secondary": "#A1A1AA",
+      "muted": "#71717A",
+      "description": "High contrast for readability, never pure white."
+    },
+    "accent": {
+      "primary": "#38BDF8",
+      "muted": "#0369A1",
+      "description": "Steel-blue. Used strictly for active states, selected tabs, and focus indicators. Muted to maintain the industrial feel."
+    },
+    "status": {
+      "warning": "#F59E0B",
+      "danger": "#EF4444",
+      "safe": "#10B981",
+      "description": "CRITICAL: Amber and Red are reserved EXCLUSIVELY for warnings, risk envelopes, and dangerous map zones. Do not use for generic active states."
+    }
+  },
+  "typography": {
+    "primary_sans": {
+      "family": "'Geist', 'Inter Tight', sans-serif",
+      "usage": "Headers, labels, button text, structural navigation.",
+      "styles": {
+        "heading_large": "text-2xl font-medium tracking-tight text-text-primary",
+        "panel_title": "text-xs font-bold uppercase tracking-[0.15em] text-text-secondary",
+        "body": "text-sm font-normal text-text-primary"
+      }
+    },
+    "monospace": {
+      "family": "'JetBrains Mono', 'IBM Plex Mono', monospace",
+      "usage": "Numeric readouts, heatmap cell values, sensor IDs, technical data.",
+      "styles": {
+        "readout_large": "text-3xl font-mono text-text-primary tabular-nums tracking-tight",
+        "cell_value": "text-xs font-mono tabular-nums",
+        "data_label": "text-[10px] font-mono uppercase text-text-secondary"
+      }
+    }
+  },
+  "layout_spacing": {
+    "grid_system": "Mode B: 'Control Room' Grid. High density, 12-column foundation. Components snap tightly to grid lines.",
+    "spacing_scale": "Dense. Use gap-2 (8px), gap-4 (16px) for internal panel spacing. Use gap-6 (24px) between major panels.",
+    "border_radius": "Sharp. Use rounded-none or rounded-sm (2px max). No pill shapes.",
+    "alignment": "Strictly left-aligned or tabularly aligned for numbers. Asymmetric, multi-column dashboard layouts."
+  },
+  "component_patterns": {
+    "panels": {
+      "classes": "bg-[#1A1A1D] border border-[#3F3F46] rounded-sm p-4",
+      "behavior": "Flat, no drop shadows. Use 1px inner border highlight if elevation is needed."
+    },
+    "heatmap_table": {
+      "container": "border border-[#3F3F46] bg-[#141416] overflow-x-auto",
+      "cell": "h-8 w-12 font-mono text-[11px] flex items-center justify-center border-r border-b border-black/20 select-none cursor-crosshair transition-colors",
+      "axis_header": "bg-[#222226] text-[#A1A1AA] font-mono text-[10px] font-bold"
+    },
+    "badges": {
+      "classes": "px-2 py-0.5 border text-[10px] font-mono uppercase tracking-wider",
+      "variants": {
+        "default": "border-[#3F3F46] text-[#A1A1AA] bg-[#1A1A1D]",
+        "active": "border-[#38BDF8] text-[#38BDF8] bg-[#0369A1]/20",
+        "warning": "border-[#F59E0B] text-[#F59E0B] bg-[#78350F]/20",
+        "danger": "border-[#EF4444] text-[#EF4444] bg-[#7F1D1D]/20"
+      }
+    },
+    "sliders": {
+      "track": "h-1 bg-[#3F3F46] rounded-none",
+      "thumb": "w-3 h-5 bg-[#38BDF8] rounded-none border border-[#141416] cursor-ew-resize hover:bg-[#7DD3FC]"
+    },
+    "warning_banner": {
+      "classes": "border-l-4 border-l-[#EF4444] bg-[#7F1D1D]/20 border-y border-r border-[#EF4444]/20 p-3 flex items-start gap-3 rounded-none"
+    },
+    "wizard_stepper": {
+      "container": "flex items-center gap-2 font-mono text-xs uppercase",
+      "step_active": "text-[#38BDF8] border-b-2 border-[#38BDF8] pb-1",
+      "step_inactive": "text-[#71717A] border-b-2 border-transparent pb-1"
+    }
+  },
+  "heatmap_scales": {
+    "fuel_map": {
+      "type": "Perceptually uniform (Viridis-inspired)",
+      "stops": ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"],
+      "text_contrast": "Ensure cell text is white on dark stops, and black on light stops (or strictly use white text with heavy text-shadow for readability)."
+    },
+    "ignition_map": {
+      "type": "Diverging (Blue to Red)",
+      "stops": ["#08519c", "#3182bd", "#6baed6", "#bdd7e7", "#1A1A1D", "#fcae91", "#fb6a4a", "#de2d26", "#a50f15"],
+      "center": "#1A1A1D (Neutral/0 change)"
+    },
+    "risk_overlay": {
+      "type": "Transparency to Warning",
+      "stops": ["transparent", "rgba(245, 158, 11, 0.4)", "rgba(239, 68, 68, 0.7)"]
+    }
+  },
+  "page_blueprints": {
+    "wizard_intake": "2-column layout. Left: sequential data entry forms (engine displacement, cylinders, turbo, etc.) using dense inputs. Right: Real-time 'Safety Envelope' readout updating as parameters change.",
+    "map_generation": "Full-width dashboard. Top: Macro parameter sliders (AFR bias, timing aggressiveness). Middle: 2D Heatmap grids side-by-side (Fuel & Ignition). Bottom: Confidence score badges and warnings.",
+    "review_compare": "Overlay mode. Heatmap shows delta values (+2.5, -1.0) with Diverging scale. Right panel holds the 'Undo Stack' of regeneration history (git-commit style list).",
+    "export_panel": "Modal or slide-over panel. Grid of target systems (DIAG-SIM, Tune Inspector Pro) with monospaced export logs and JSON preview snippet.",
+    "dashboard_home": "Grid of saved profiles. Each card looks like a hardware memory slot, showing Engine ID, Date, and a mini-sparkline/confidence metric."
+  },
+  "motion": {
+    "philosophy": "Industrial and instant. No long eases.",
+    "hover_states": "Instant color snap (0ms transition) for standard buttons, fast 100ms fade for map cells.",
+    "data_updates": "When data changes, flash the cell background momentarily in white or accent color to draw the engineer's eye, then settle.",
+    "loading": "Use monospace ASCII spinners or progress bars ( [||||||....] ) instead of circular SVG loaders."
+  },
+  "accessibility_and_testing": {
+    "contrast": "Strict APCA/WCAG adherence. Text on heatmaps must be legible.",
+    "testing_attributes": "ALL interactive elements must use data-testid attributes (e.g., data-testid='slider-afr-bias', data-testid='cell-fuel-1000-50')."
+  },
+  "image_urls": {
+    "background_textures": [
+      {
+        "url": "https://images.unsplash.com/photo-1429772011165-0c2e054367b8",
+        "category": "empty_state",
+        "description": "Gray engine bay - use as a highly darkened, low-opacity background for empty states or auth."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1552656967-7a0991a13906",
+        "category": "texture",
+        "description": "Stainless steel engine bay - use sparingly at 5% opacity for panel textures if needed."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Use raw HTML/Tailwind for the primary grid layouts to maintain the tight 'Control Room' density. Do not rely heavily on pre-styled SaaS components like Shadcn Cards if they enforce too much padding or rounding.",
+    "Implement the 2D heatmaps using raw grid/flex or HTML tables with inline styles for dynamic background colors based on the value.",
+    "Force all numerical inputs and data readouts to use the monospace font.",
+    "Ensure 'Safety Envelope' warnings conditionally render with stark red/amber styling to break the monochrome UI intentionally."
+  ]
+}
