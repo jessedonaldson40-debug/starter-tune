@@ -22,12 +22,17 @@ Build a production-grade full-stack web application module called STANDAILONE ST
 - Handoff to DIAG-SIM / Tune Inspector Pro / Forensic Inspector / ECU
 - Industrial / engineering UI (graphite + gunmetal, sharp corners, monospace technical readouts)
 
-## What's been implemented (2026-02 initial release + Round 2 + Round 3 polish)
+## What's been implemented (initial release + Round 2 + Round 3 + Round 4 polish)
+
+### Round 4 — Final polish (Feb 2026)
+- **Testid alignment**: `ExplainFinding` now uses `${testId}-btn` for the button and `${testId}-out` for the output container so selectors like `[data-testid$="-btn"]` and `[data-testid$="-out"]` cleanly differentiate them.
+- **AI explanation cache**: in-memory LRU (max 64 entries) keyed by SHA-1 of `finding code + message + remediation + engine_metadata + safety_envelope`. Repeat clicks replay cached tokens in 32-char chunks (~6.6× faster than the live LLM call). Exposed `GET /api/inspector/explain-cache/stats` and `DELETE /api/inspector/explain-cache` for diagnostics/reset. Cache is process-local (acceptable per spec).
+- **SSE heartbeat**: live LLM streams emit an `event: ping` frame every 8 tokens for proxy keepalive. Frontend silently ignores unknown event types so no UI changes were needed.
 
 ### Round 3 — UX polish + maintainability + AI Explainer
-- **ExportPanel UX (refactored)**: modal stays open through sequential exports. Each target card shows a count badge (×N) and switches to "Run again" / "Re-download" after first use. New SESSION ARTIFACTS panel accumulates every artifact created in the modal session with per-row OPEN/DOWNLOAD buttons. ECU continues to download as a local JSON.
-- **Backend `/export/{target}` refactor**: extracted per-target async helpers (`_export_diagsim`, `_export_inspector`, `_export_forensic`, `_export_ecu`) dispatched via `EXPORT_HANDLERS` map. Inspector saved documents now include `engine_metadata` + `safety_envelope` (parity with `/inspector/audit`).
-- **AI Explainer (NEW)**: `POST /api/inspector/findings/explain` streams a plain-English explanation of any audit finding from **Claude Sonnet 4.6** via SSE, using the Emergent Universal LLM key. Frontend `ExplainFinding` component is wired into each Inspector finding card with STOP / RETRY / × controls and a streaming cursor block.
+- ExportPanel keeps modal open through sequential exports with SESSION ARTIFACTS list and per-row OPEN/DOWNLOAD actions.
+- `/export/{target}` refactored into per-target async helpers dispatched via `EXPORT_HANDLERS`.
+- `POST /api/inspector/findings/explain` streams plain-English explanations from Claude Sonnet 4.6 via SSE using Emergent Universal LLM key.
 
 ### Backend (`/app/backend/`)
 - `calibration.py` — engineering core (VE / fuel / ignition / boost / idle / cold-start / safety envelope / confidence / knock-pull zones)
