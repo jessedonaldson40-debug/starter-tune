@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
 
 import calibration as cal
+import diagsim
+import inspector
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -70,6 +72,9 @@ class GenerationAdjustments(BaseModel):
     timing_bias: float = 0.0
     boost_intent: float = 0.0
     drivability_bias: float = 0.0
+    # 4x4 zone grid of additive ignition pull values (negative = pull).
+    # zone rows = RPM quartile (low→high), zone cols = load quartile (low→high).
+    knock_pull_zones: Optional[list[list[float]]] = None
 
 
 class GenerateRequest(BaseModel):
@@ -290,23 +295,119 @@ EXPORT_TARGETS = {
         "name": "DIAG-SIM",
         "description": "Synthetic OBD/CAN telemetry simulation",
         "format": "diagsim.session.v1",
+        "view_route": "/diagsim",
     },
     "inspector": {
         "name": "Tune Inspector Pro",
         "description": "Calibration audit and report package",
         "format": "inspector.report.v2",
+        "view_route": "/inspector",
     },
     "forensic": {
         "name": "Forensic Inspector",
         "description": "Compare/audit view for tune deltas",
         "format": "forensic.audit.v1",
+        "view_route": "/forensic",
     },
     "ecu": {
         "name": "ECU Flash Artifact",
         "description": "Structured tune package for ECU flashing",
         "format": "ecu.flash.json.v1",
+        "view_route": "/ecu",
     },
 }
+
+
+class DiagSimRunRequest(BaseModel):
+    scenario: str = "wot_pull"
+    seed: Optional[int] = None
+
+
+@api_router.get("/diagsim/scenarios")
+async def diagsim_scenarios() -> dict[str, Any]:
+    return diagsim.SCENARIOS
+
+
+@api_router.post("/profiles/{profile_id}/diagsim/run")
+async def diagsim_run(profile_id: str, req: DiagSimRunRequest) -> dict[str, Any]:
+    doc = await db.profiles.find_one({"id": profile_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Profile not found")
+    active_idx = doc.get("active_generation_index", 0)
+    package = doc["history"][active_idx]["tune_package"]
+    intake = doc["engine_metadata"]
+
+    result = diagsim.simulate(package, intake, scenario=req.scenario, seed=req.seed)
+    session_id = str(uuid.uuid4())
+    session = {
+        "session_id": session_id,
+        "profile_id": profile_id,
+        "profile_name": doc["name"],
+        "source_generation_index": active_idx,
+        "created_at": _now_iso(),
+        "intake_snapshot": intake,
+        "envelope_snapshot": package["safety_envelope"],
+        **result,
+    }
+    await db.diagsim_sessions.insert_one({**session})
+    return session
+
+
+@api_router.get("/diagsim/sessions/{session_id}")
+async def diagsim_get_session(session_id: str) -> dict[str, Any]:
+    doc = await db.diagsim_sessions.find_one({"session_id": session_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Session not found")
+    return doc
+
+
+@api_router.get("/profiles/{profile_id}/diagsim/sessions")
+async def diagsim_list_sessions(profile_id: str) -> list[dict[str, Any]]:
+    cur = db.diagsim_sessions.find(
+        {"profile_id": profile_id},
+        {"_id": 0, "samples": 0},
+    ).sort("created_at", -1)
+    return await cur.to_list(200)
+
+
+@api_router.post("/profiles/{profile_id}/inspector/audit")
+async def inspector_audit(profile_id: str) -> dict[str, Any]:
+    doc = await db.profiles.find_one({"id": profile_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Profile not found")
+    active_idx = doc.get("active_generation_index", 0)
+    package = doc["history"][active_idx]["tune_package"]
+    intake = doc["engine_metadata"]
+
+    report = inspector.audit(package, intake)
+    report_id = str(uuid.uuid4())
+    saved = {
+        "report_id": report_id,
+        "profile_id": profile_id,
+        "profile_name": doc["name"],
+        "source_generation_index": active_idx,
+        "created_at": _now_iso(),
+        **report,
+    }
+    await db.inspector_reports.insert_one({**saved})
+    return saved
+
+
+@api_router.get("/inspector/reports/{report_id}")
+async def inspector_get_report(report_id: str) -> dict[str, Any]:
+    doc = await db.inspector_reports.find_one({"report_id": report_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Report not found")
+    return doc
+
+
+@api_router.get("/profiles/{profile_id}/inspector/reports")
+async def inspector_list_reports(profile_id: str) -> list[dict[str, Any]]:
+    cur = db.inspector_reports.find(
+        {"profile_id": profile_id},
+        {"_id": 0, "findings": 0},
+    ).sort("created_at", -1)
+    return await cur.to_list(200)
 
 
 @api_router.get("/export/targets")
@@ -324,9 +425,99 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
 
     active_idx = doc.get("active_generation_index", 0)
     package = doc["history"][active_idx]["tune_package"]
+    intake = doc["engine_metadata"]
     info = EXPORT_TARGETS[target]
 
     artifact_id = str(uuid.uuid4())
+    deep_link: Optional[str] = None
+    real_payload: dict[str, Any]
+
+    # Each target invokes the REAL module (no longer a mock dump).
+    if target == "diagsim":
+        result = diagsim.simulate(package, intake, scenario="wot_pull")
+        session_id = str(uuid.uuid4())
+        session = {
+            "session_id": session_id,
+            "profile_id": profile_id,
+            "profile_name": doc["name"],
+            "source_generation_index": active_idx,
+            "created_at": _now_iso(),
+            "intake_snapshot": intake,
+            "envelope_snapshot": package["safety_envelope"],
+            **result,
+        }
+        await db.diagsim_sessions.insert_one({**session})
+        deep_link = f"/diagsim/{session_id}"
+        real_payload = {
+            "session_id": session_id,
+            "scenario": result["scenario"],
+            "summary": result["summary"],
+            "fault_codes": result["fault_codes"],
+        }
+
+    elif target == "inspector":
+        report = inspector.audit(package, intake)
+        report_id = str(uuid.uuid4())
+        saved = {
+            "report_id": report_id,
+            "profile_id": profile_id,
+            "profile_name": doc["name"],
+            "source_generation_index": active_idx,
+            "created_at": _now_iso(),
+            **report,
+        }
+        await db.inspector_reports.insert_one({**saved})
+        deep_link = f"/inspector/{report_id}"
+        real_payload = {
+            "report_id": report_id,
+            "score": report["score"],
+            "subsystem_scores": report["subsystem_scores"],
+            "counts": report["counts"],
+            "top_findings": report["findings"][:5],
+        }
+
+    elif target == "forensic":
+        history_len = len(doc["history"])
+        if history_len < 2:
+            # Single generation — produce an audit-against-self artifact
+            report = inspector.audit(package, intake)
+            real_payload = {
+                "mode": "single_generation_audit",
+                "score": report["score"],
+                "findings_count": len(report["findings"]),
+            }
+            deep_link = f"/profiles/{profile_id}/compare"
+        else:
+            a_idx = max(0, active_idx - 1)
+            b_idx = active_idx
+            a = doc["history"][a_idx]["tune_package"]
+            b = doc["history"][b_idx]["tune_package"]
+            real_payload = {
+                "mode": "two_generation_diff",
+                "a_index": a_idx,
+                "b_index": b_idx,
+                "fuel_diff": cal.compute_map_diff(a["fuel_map_ms"], b["fuel_map_ms"]),
+                "ignition_diff": cal.compute_map_diff(a["ignition_map_deg"], b["ignition_map_deg"]),
+            }
+            deep_link = f"/profiles/{profile_id}/compare"
+
+    else:  # ecu
+        real_payload = {
+            "format": info["format"],
+            "rpm_axis": package["axes"]["rpm"],
+            "load_axis": package["axes"]["load_kpa"],
+            "fuel_map_ms": package["fuel_map_ms"],
+            "ignition_map_deg": package["ignition_map_deg"],
+            "afr_target_table": package["afr_target_table"],
+            "boost_target_table": package.get("boost_target_table"),
+            "idle_table": package["idle_table"],
+            "cold_start_table": package["cold_start_table"],
+            "safety_envelope": package["safety_envelope"],
+            "engine_metadata": intake,
+            "checksum_placeholder": artifact_id[:8].upper(),
+        }
+        deep_link = None  # ECU is a downloadable JSON, no view route
+
     artifact = {
         "artifact_id": artifact_id,
         "target": target,
@@ -336,7 +527,8 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
         "profile_id": profile_id,
         "profile_name": doc["name"],
         "source_generation_index": active_idx,
-        "engine_metadata": doc["engine_metadata"],
+        "engine_metadata": intake,
+        "deep_link": deep_link,
         "tune_summary": {
             "fuel_cells": sum(len(r) for r in package["fuel_map_ms"]),
             "ignition_cells": sum(len(r) for r in package["ignition_map_deg"]),
@@ -344,7 +536,7 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
             "warnings_count": len(package["safety_envelope"]["warnings"]),
             "boost_ceiling_kpa": package["safety_envelope"]["boost_ceiling_kpa"],
         },
-        "payload": package,
+        "payload": real_payload,
     }
 
     log_line = f"[{artifact['generated_at']}] EXPORT {info['name']} :: {artifact_id} :: {doc['name']}"
@@ -358,6 +550,7 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
                     "target_name": info["name"],
                     "created_at": _now_iso(),
                     "source_generation_index": active_idx,
+                    "deep_link": deep_link,
                     "log_line": log_line,
                 }
             }

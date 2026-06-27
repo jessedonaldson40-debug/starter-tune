@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Activity, FileSearch, ScanLine, FileCog } from "lucide-react";
+import { Activity, FileSearch, ScanLine, FileCog, ExternalLink, Download as DownloadIcon } from "lucide-react";
 import { exportProfile, listExportTargets } from "@/lib/api";
 import { toast } from "sonner";
 import { fmt } from "@/lib/format";
@@ -18,11 +19,24 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(null);
   const [artifact, setArtifact] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!open) return;
     listExportTargets().then(setTargets).catch(() => {});
   }, [open]);
+
+  const downloadEcuArtifact = (art) => {
+    const blob = new Blob([JSON.stringify(art, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${profileName.replace(/[^a-z0-9]+/gi, "_")}_${art.artifact_id.slice(0, 8)}.ecuflash.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const handleExport = async (key) => {
     setBusy(key);
@@ -38,12 +52,34 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
         `  confidence      ${(res.tune_summary.confidence_overall * 100).toFixed(0)}%`,
         `  warnings        ${res.tune_summary.warnings_count}`,
         `  source_gen_idx  ${res.source_generation_index}`,
+        res.deep_link ? `  deep_link       ${res.deep_link}` : "  deep_link       —",
         "",
         ...prev,
       ]);
-      toast.success(`${res.target_name} handoff complete`, {
-        description: `Artifact ${res.artifact_id.slice(0, 8)} created.`,
-      });
+
+      if (key === "ecu") {
+        downloadEcuArtifact(res);
+        toast.success("ECU artifact ready", {
+          description: "JSON file downloaded.",
+        });
+      } else if (res.deep_link) {
+        toast.success(`${res.target_name} handoff complete`, {
+          description: "Opening session…",
+          action: {
+            label: "Open",
+            onClick: () => navigate(res.deep_link),
+          },
+        });
+        // Auto-navigate after short delay so user sees toast
+        setTimeout(() => {
+          onOpenChange(false);
+          navigate(res.deep_link);
+        }, 600);
+      } else {
+        toast.success(`${res.target_name} handoff complete`, {
+          description: `Artifact ${res.artifact_id.slice(0, 8)} created.`,
+        });
+      }
     } catch (e) {
       toast.error("Export failed", { description: String(e.message || e) });
     } finally {
@@ -66,6 +102,7 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
         <div className="grid grid-cols-2 gap-3 px-6 py-5">
           {Object.entries(targets).map(([key, t]) => {
             const Icon = ICONS[key] || FileCog;
+            const isEcu = key === "ecu";
             return (
               <div key={key} className="st-panel-raised p-4 flex flex-col gap-3" data-testid={`export-target-${key}`}>
                 <div className="flex items-start gap-3">
@@ -87,7 +124,13 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
                   onClick={() => handleExport(key)}
                   data-testid={`export-btn-${key}`}
                 >
-                  {busy === key ? "HANDING OFF…" : `Send to ${t.name}`}
+                  {busy === key ? (
+                    "HANDING OFF…"
+                  ) : isEcu ? (
+                    <><DownloadIcon className="w-3.5 h-3.5 mr-2" /> Download Artifact</>
+                  ) : (
+                    <><ExternalLink className="w-3.5 h-3.5 mr-2" /> Send to {t.name}</>
+                  )}
                 </Button>
               </div>
             );
@@ -106,15 +149,15 @@ export default function ExportPanel({ open, onOpenChange, profileId, profileName
 
         {artifact && (
           <div className="border-t border-[var(--st-border)] px-6 py-4 bg-[var(--st-panel)]">
-            <div className="st-data-label mb-2">LAST ARTIFACT PREVIEW (truncated)</div>
+            <div className="st-data-label mb-2">LAST ARTIFACT</div>
             <pre data-testid="export-artifact-preview" className="font-mono text-[10px] text-[var(--st-text-secondary)] max-h-40 overflow-auto bg-[var(--st-panel-deep)] p-3 border border-[var(--st-border)]">
 {JSON.stringify({
   artifact_id: artifact.artifact_id,
   target: artifact.target_name,
   format: artifact.format,
-  profile: artifact.profile_name,
+  deep_link: artifact.deep_link,
+  payload_keys: Object.keys(artifact.payload),
   tune_summary: artifact.tune_summary,
-  engine: artifact.engine_metadata,
 }, null, 2)}
             </pre>
           </div>

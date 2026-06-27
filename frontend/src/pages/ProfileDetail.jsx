@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { getProfile, regenerateProfile, revertProfile } from "@/lib/api";
+import { getProfile, regenerateProfile, revertProfile, listProfileDiagSimSessions, listProfileInspectorReports } from "@/lib/api";
 import { Panel, PanelHeader } from "@/components/PanelHeader";
 import { Button } from "@/components/ui/button";
 import { Heatmap, HeatmapLegend } from "@/components/Heatmap";
@@ -9,7 +9,7 @@ import ConfidenceBadge from "@/components/ConfidenceBadge";
 import WarningBanner from "@/components/WarningBanner";
 import ExportPanel from "@/components/ExportPanel";
 import { fmt } from "@/lib/format";
-import { ArrowLeft, Download, GitCompareArrows, History, RefreshCw, RotateCcw, Layers } from "lucide-react";
+import { ArrowLeft, Download, GitCompareArrows, History, RefreshCw, RotateCcw, Layers, Activity, FileSearch, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip as RTooltip } from "recharts";
 
@@ -19,8 +19,14 @@ export default function ProfileDetail() {
   const [profile, setProfile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [diagsimSessions, setDiagsimSessions] = useState([]);
+  const [inspectorReports, setInspectorReports] = useState([]);
 
-  const refresh = () => getProfile(id).then(setProfile);
+  const refresh = () => {
+    getProfile(id).then(setProfile);
+    listProfileDiagSimSessions(id).then(setDiagsimSessions).catch(() => setDiagsimSessions([]));
+    listProfileInspectorReports(id).then(setInspectorReports).catch(() => setInspectorReports([]));
+  };
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [id]);
 
   if (!profile) {
@@ -317,6 +323,64 @@ export default function ProfileDetail() {
         </TabsContent>
 
         <TabsContent value="exports" className="space-y-4 mt-0">
+          {/* DIAG-SIM sessions list */}
+          <Panel testId="detail-diagsim-sessions">
+            <PanelHeader label="DIAG-SIM SESSIONS" sub={`${diagsimSessions.length} RUNS`}
+                         right={<Activity className="w-4 h-4 text-[var(--st-accent)]" />} />
+            {diagsimSessions.length === 0 ? (
+              <div className="font-mono text-xs text-[var(--st-text-muted)] py-4 text-center uppercase tracking-widest">
+                [ idle ] no telemetry sessions · use EXPORT → SEND TO DIAG-SIM
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {diagsimSessions.map((s) => (
+                  <Link key={s.session_id} to={`/diagsim/${s.session_id}`}
+                        data-testid={`diagsim-session-${s.session_id}`}
+                        className="border border-[var(--st-border)] hover:border-[var(--st-accent)] p-3 flex items-center justify-between gap-3 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-[11px] uppercase tracking-widest text-[var(--st-text)]">
+                        {s.scenario_name} · gen #{s.source_generation_index + 1}
+                      </div>
+                      <div className="font-mono text-[10px] text-[var(--st-text-muted)] mt-1">
+                        {fmt.date(s.created_at)} · {s.duration_s.toFixed(1)}s · knock: {s.summary?.knock_events ?? 0} · faults: {s.fault_codes?.length ?? 0}
+                      </div>
+                    </div>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-[var(--st-accent)]" />
+                  </Link>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          {/* Inspector reports list */}
+          <Panel testId="detail-inspector-reports">
+            <PanelHeader label="TUNE INSPECTOR REPORTS" sub={`${inspectorReports.length} AUDITS`}
+                         right={<FileSearch className="w-4 h-4 text-[var(--st-accent)]" />} />
+            {inspectorReports.length === 0 ? (
+              <div className="font-mono text-xs text-[var(--st-text-muted)] py-4 text-center uppercase tracking-widest">
+                [ idle ] no audits · use EXPORT → SEND TO TUNE INSPECTOR PRO
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {inspectorReports.map((r) => (
+                  <Link key={r.report_id} to={`/inspector/${r.report_id}`}
+                        data-testid={`inspector-report-${r.report_id}`}
+                        className="border border-[var(--st-border)] hover:border-[var(--st-accent)] p-3 flex items-center justify-between gap-3 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-[11px] uppercase tracking-widest text-[var(--st-text)]">
+                        AUDIT · gen #{r.source_generation_index + 1} · SCORE {r.score}/100
+                      </div>
+                      <div className="font-mono text-[10px] text-[var(--st-text-muted)] mt-1">
+                        {fmt.date(r.created_at)} · {r.counts?.critical ?? 0} critical · {r.counts?.warning ?? 0} warning · {r.counts?.info ?? 0} info
+                      </div>
+                    </div>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-[var(--st-accent)]" />
+                  </Link>
+                ))}
+              </div>
+            )}
+          </Panel>
+
           <Panel testId="detail-exports-panel">
             <PanelHeader label="EXPORT / HANDOFF LOG" sub={`${(profile.exports || []).length} ARTIFACTS`} />
             {(!profile.exports || profile.exports.length === 0) ? (
@@ -325,7 +389,7 @@ export default function ProfileDetail() {
               </div>
             ) : (
               <pre className="font-mono text-[11px] leading-relaxed text-[var(--st-text-secondary)] max-h-72 overflow-auto whitespace-pre-wrap bg-[var(--st-panel-deep)] p-3 border border-[var(--st-border)]">
-                {profile.exports.map((e) => e.log_line).join("\n")}
+                {profile.exports.map((e) => e.log_line + (e.deep_link ? ` :: ${e.deep_link}` : "")).join("\n")}
               </pre>
             )}
           </Panel>

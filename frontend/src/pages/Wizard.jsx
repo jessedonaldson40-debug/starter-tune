@@ -37,6 +37,12 @@ const DEFAULT_ADJUSTMENTS = {
   timing_bias: 0.0,
   boost_intent: 0.0,
   drivability_bias: 0.0,
+  knock_pull_zones: [
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ],
 };
 
 export default function Wizard() {

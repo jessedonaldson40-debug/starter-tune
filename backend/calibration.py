@@ -658,6 +658,9 @@ def generate_starter_tune(intake: dict[str, Any],
     timing_bias = float(adjustments.get("timing_bias", 0.0))   # -1..+1
     boost_intent = float(adjustments.get("boost_intent", 0.0)) # -1..+1
     drivability_bias = float(adjustments.get("drivability_bias", 0.0))  # -1..+1 (toward perf)
+    # Knock-pull zones — 4x4 grid of additive timing adjustments (negative = pull).
+    # Cells in RPM zone z_r = rpm_idx // 4, load zone z_l = load_idx // 4.
+    knock_pull_zones = adjustments.get("knock_pull_zones") or [[0.0] * 4 for _ in range(4)]
     cam_aggressiveness = drivability_bias * 0.4  # used in VE estimate
 
     envelope = compute_safety_envelope(intake)
@@ -704,6 +707,18 @@ def generate_starter_tune(intake: dict[str, Any],
     # Cap ignition map by ignition ceiling from envelope
     ignition_map = [[min(cell, envelope.ignition_ceiling) for cell in row] for row in ignition_map]
 
+    # Apply user knock-pull zones AFTER envelope clamp (pull is additive, typically negative).
+    # Zone size: 16 RPM cells / 4 zones = 4 cells per zone; same for load.
+    knock_pull_applied = False
+    for r_idx in range(len(ignition_map)):
+        for l_idx in range(len(ignition_map[0])):
+            z_r = min(3, r_idx // 4)
+            z_l = min(3, l_idx // 4)
+            pull = float(knock_pull_zones[z_r][z_l])
+            if pull != 0.0:
+                knock_pull_applied = True
+                ignition_map[r_idx][l_idx] = round(max(0.0, ignition_map[r_idx][l_idx] + pull), 1)
+
     boost_table = build_boost_target_table(
         induction=induction,
         boost_ceiling_kpa=envelope.boost_ceiling_kpa or 100.0,
@@ -749,6 +764,8 @@ def generate_starter_tune(intake: dict[str, Any],
             "timing_bias": timing_bias,
             "boost_intent": boost_intent,
             "drivability_bias": drivability_bias,
+            "knock_pull_zones": knock_pull_zones,
+            "knock_pull_applied": knock_pull_applied,
         },
         "algorithm_version": "starter-tune-engine/1.0",
     }

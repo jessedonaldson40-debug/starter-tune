@@ -32,3 +32,20 @@ export const compareGenerations = (id, a, b) =>
 export const listExportTargets = () => api.get("/export/targets").then(r => r.data);
 export const exportProfile = (id, target) =>
   api.post(`/profiles/${id}/export/${target}`).then(r => r.data);
+
+// ---- DIAG-SIM ----
+export const listDiagSimScenarios = () => api.get("/diagsim/scenarios").then(r => r.data);
+export const runDiagSim = (profileId, scenario = "wot_pull", seed = null) =>
+  api.post(`/profiles/${profileId}/diagsim/run`, { scenario, seed }).then(r => r.data);
+export const getDiagSimSession = (sessionId) =>
+  api.get(`/diagsim/sessions/${sessionId}`).then(r => r.data);
+export const listProfileDiagSimSessions = (profileId) =>
+  api.get(`/profiles/${profileId}/diagsim/sessions`).then(r => r.data);
+
+// ---- Tune Inspector ----
+export const runInspectorAudit = (profileId) =>
+  api.post(`/profiles/${profileId}/inspector/audit`).then(r => r.data);
+export const getInspectorReport = (reportId) =>
+  api.get(`/inspector/reports/${reportId}`).then(r => r.data);
+export const listProfileInspectorReports = (profileId) =>
+  api.get(`/profiles/${profileId}/inspector/reports`).then(r => r.data);

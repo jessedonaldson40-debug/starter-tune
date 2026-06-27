@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Heatmap, HeatmapLegend } from "@/components/Heatmap";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
 import WarningBanner from "@/components/WarningBanner";
+import KnockPullEditor from "@/components/KnockPullEditor";
 import { generateTune } from "@/lib/api";
 import { fmt } from "@/lib/format";
 import { ArrowLeft, ArrowRight, History, RotateCcw } from "lucide-react";
@@ -69,7 +70,7 @@ export default function ReviewStep({
     const t = setTimeout(() => apply(adjustments), 280);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adjustments.afr_bias, adjustments.timing_bias, adjustments.boost_intent, adjustments.drivability_bias]);
+  }, [adjustments.afr_bias, adjustments.timing_bias, adjustments.boost_intent, adjustments.drivability_bias, JSON.stringify(adjustments.knock_pull_zones)]);
 
   const fuelMask = useMemo(() => prevTune ? buildChangedMask(prevTune.fuel_map_ms, tune?.fuel_map_ms, 0.03) : null, [prevTune, tune]);
   const ignMask  = useMemo(() => prevTune ? buildChangedMask(prevTune.ignition_map_deg, tune?.ignition_map_deg, 0.2) : null, [prevTune, tune]);
@@ -245,11 +246,21 @@ export default function ReviewStep({
             {adjustments.boost_intent < -0.1 && boosted && <li>• Boost target lowered for spool safety and lower thermal load.</li>}
             {adjustments.boost_intent > 0.1 && boosted && <li>• Boost target raised toward envelope ceiling; cannot exceed {fmt.kpa(tune.safety_envelope.boost_ceiling_kpa)}.</li>}
             {Math.abs(adjustments.drivability_bias) > 0.1 && <li>• VE estimate shifted to reflect {adjustments.drivability_bias > 0 ? "performance" : "drivability"} cam profile assumption.</li>}
+            {tune.adjustments_applied?.knock_pull_applied && <li>• Manual knock-pull applied via Knock Pull Editor — specific RPM/load zones now have reduced timing for additional knock margin.</li>}
             {Math.abs(adjustments.afr_bias) < 0.1 && Math.abs(adjustments.timing_bias) < 0.1
-              && Math.abs(adjustments.boost_intent) < 0.1 && Math.abs(adjustments.drivability_bias) < 0.1 &&
+              && Math.abs(adjustments.boost_intent) < 0.1 && Math.abs(adjustments.drivability_bias) < 0.1
+              && !tune.adjustments_applied?.knock_pull_applied &&
               <li className="text-[var(--st-text-muted)]">No adjustments applied. Baseline conservative starter tune.</li>}
           </ul>
         </Panel>
+
+        {/* Knock Pull Editor */}
+        <KnockPullEditor
+          value={adjustments.knock_pull_zones}
+          onChange={(zones) => setAdjustments({ ...adjustments, knock_pull_zones: zones })}
+          rpmAxis={tune.axes.rpm}
+          loadAxis={tune.axes.load_kpa}
+        />
 
         <div className="flex items-center justify-between gap-3 mt-2">
           <Button variant="ghost" onClick={onBack} data-testid="review-back-btn"

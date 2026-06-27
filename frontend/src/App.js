@@ -6,6 +6,8 @@ import Dashboard from "@/pages/Dashboard";
 import Wizard from "@/pages/Wizard";
 import ProfileDetail from "@/pages/ProfileDetail";
 import CompareView from "@/pages/CompareView";
+import DiagSimSession from "@/pages/DiagSimSession";
+import InspectorReport from "@/pages/InspectorReport";
 
 const NAV_ITEMS = [
   { to: "/", label: "OVERVIEW", testId: "nav-overview" },
@@ -86,6 +88,8 @@ export default function App() {
             <Route path="/wizard" element={<Wizard />} />
             <Route path="/profiles/:id" element={<ProfileDetail />} />
             <Route path="/profiles/:id/compare" element={<CompareView />} />
+            <Route path="/diagsim/:sessionId" element={<DiagSimSession />} />
+            <Route path="/inspector/:reportId" element={<InspectorReport />} />
           </Routes>
         </main>
         <FooterBar />
