@@ -695,9 +695,11 @@ async def upload_package(payload: dict[str, Any]) -> dict[str, Any]:
         "cylinders": eng["cylinder_count"],
         "induction": eng["induction_type"],
         "fuel_type": eng["fuel_type"],
-        "target_hp": float(pkg_dict.get("generation_metadata", {}).get("user_overrides", {}).get("target_hp")
-                          or pkg_dict.get("telemetry_assumptions", {}).get("expected_injector_duty_pct")
-                          or 300),
+        "target_hp": float(
+            eng.get("target_hp")
+            or pkg_dict.get("generation_metadata", {}).get("user_overrides", {}).get("target_hp")
+            or 300
+        ),
         "rev_limit": eng["rev_limit"],
         "injector_cc": eng.get("injector_size_cc") or 440,
         "compression_ratio": eng.get("compression_ratio") or 10.0,

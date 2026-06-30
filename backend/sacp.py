@@ -144,6 +144,7 @@ class Engine(_SacpModel):
     camshaft_profile: Optional[str] = None
     valvetrain: Optional[str] = None
     ethanol_pct: Optional[float] = None
+    target_hp: Optional[float] = None      # operator target — preserved across save/load
 
 
 class HardwarePackage(_SacpModel):
@@ -448,6 +449,7 @@ def _engine_from_intake(intake: dict[str, Any]) -> Engine:
         injector_size_cc=intake.get("injector_cc"),
         injector_count=int(intake.get("cylinders", 0)),
         ethanol_pct=intake.get("ethanol_pct"),
+        target_hp=intake.get("target_hp"),
     )
 
 
