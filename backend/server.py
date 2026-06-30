@@ -648,10 +648,58 @@ async def _load_profile_or_404(package_id: str) -> dict[str, Any]:
     return doc
 
 
+async def _embed_recent_references(package_id: str, pkg: dict[str, Any]) -> dict[str, Any]:
+    """Inject the most recent DIAG-SIM sessions and Inspector reports inline
+    into the SACP's simulation.last_sessions / inspector.last_reports lists, so
+    the downloaded .sacp ships with these references rather than requiring
+    foreign-key lookups in the source ecosystem."""
+    sessions_cur = db.diagsim_sessions.find(
+        {"profile_id": package_id},
+        {"_id": 0, "samples": 0},  # exclude bulky samples
+    ).sort("created_at", -1).limit(5)
+    sessions = await sessions_cur.to_list(5)
+
+    reports_cur = db.inspector_reports.find(
+        {"profile_id": package_id},
+        {"_id": 0, "findings": 0},  # exclude bulky findings detail
+    ).sort("created_at", -1).limit(5)
+    reports = await reports_cur.to_list(5)
+
+    pkg.setdefault("simulation", {})
+    pkg["simulation"]["last_sessions"] = [
+        {
+            "session_id": s.get("session_id"),
+            "scenario": s.get("scenario"),
+            "scenario_name": s.get("scenario_name"),
+            "created_at": s.get("created_at"),
+            "summary": s.get("summary"),
+            "fault_codes": s.get("fault_codes", []),
+            "source_generation_index": s.get("source_generation_index"),
+        }
+        for s in sessions
+    ]
+    pkg.setdefault("inspector", {})
+    pkg["inspector"]["last_reports"] = [
+        {
+            "report_id": r.get("report_id"),
+            "created_at": r.get("created_at"),
+            "score": r.get("score"),
+            "subsystem_scores": r.get("subsystem_scores"),
+            "counts": r.get("counts"),
+            "recommendations": r.get("recommendations", [])[:5],
+            "source_generation_index": r.get("source_generation_index"),
+        }
+        for r in reports
+    ]
+    # Re-stamp checksum since the package body changed
+    return sacp.stamp_checksum(pkg)
+
+
 @api_router.get("/packages/{package_id}")
 async def get_package(package_id: str) -> dict[str, Any]:
     doc = await _load_profile_or_404(package_id)
-    return sacp.from_profile(doc)
+    pkg = sacp.from_profile(doc)
+    return await _embed_recent_references(package_id, pkg)
 
 
 @api_router.get("/packages/{package_id}/download")
@@ -659,6 +707,7 @@ async def download_package(package_id: str):
     from fastapi.responses import Response
     doc = await _load_profile_or_404(package_id)
     pkg = sacp.from_profile(doc)
+    pkg = await _embed_recent_references(package_id, pkg)
     name = (pkg.get("package_metadata", {}).get("name") or "package")
     safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in name)[:60]
     filename = f"{safe}_{package_id[:8]}{sacp.SACP_FILE_EXTENSION}"

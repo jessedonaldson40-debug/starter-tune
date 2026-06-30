@@ -22,7 +22,12 @@ function TopBar() {
     <header className="border-b border-[var(--st-border)] bg-[var(--st-panel-deep)]" data-testid="top-bar">
       <div className="max-w-[1600px] mx-auto px-6 h-14 flex items-center justify-between gap-6">
         <Link to="/" className="flex items-center gap-3 group" data-testid="brand-home-link">
-          <div className="w-2 h-6 bg-[var(--st-accent)]" />
+          <img
+            src="https://customer-assets.emergentagent.com/job_starter-tune-gen/artifacts/1s8w87f2_standailone%20image%20better.png"
+            alt="STANDAILONE"
+            className="h-9 w-9 object-contain shrink-0"
+            data-testid="brand-logo"
+          />
           <div className="flex flex-col leading-none">
             <span className="font-mono text-[10px] tracking-[0.22em] text-[var(--st-text-muted)]">
               STANDAILONE

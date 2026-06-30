@@ -1,0 +1,39 @@
+{
+  "summary": "Round 7 polish — 3 items verified end-to-end. (1) SACP embedding: created /app/backend/tests/test_round7_sacp_embed.py with 7 tests covering GET /api/packages/{id} returning simulation.last_sessions and inspector.last_reports with required fields (session_id/scenario/scenario_name/created_at/summary/fault_codes/source_generation_index for sessions; report_id/created_at/score/subsystem_scores/counts/recommendations<=5/source_generation_index for reports), bulky 'samples' and 'findings' keys excluded, sorted desc by created_at, capped at 5 each, empty lists (not null) on fresh profile, download body includes embedded refs with X-SACP-Checksum header matching package_metadata.checksum after re-stamp, full download→upload round trip works. (2) test_round4::test_cache_stats_endpoint_reports_entries now self-clears the cache and populates 2 entries before asserting — passes in isolation AND under pytest -n auto (xdist parallel). (3) Frontend topbar: brand-logo img wired to standailone CDN URL (customer-assets.emergentagent.com), naturalWidth=1254 (loaded successfully), STANDAILONE + STARTER TUNE ENGINE labels intact, brand-home-link wraps logo+text with href='/', clicking from /profiles/{id} navigates back to /. Full backend pytest suite: 62/62 passing both serially and under -n auto. Target_hp round-trips correctly (700.0 in → 700.0 out via engine.target_hp).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_round7_sacp_embed.py",
+    "/app/test_reports/pytest/round7_results.xml",
+    "/app/test_reports/pytest/all_round7_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_embed_recent_references() correctly projects '_id' and bulky fields out at the Mongo query layer ({'_id':0, 'samples':0} / {'_id':0, 'findings':0}) — no ObjectId leak, no oversized payload risk.",
+    "Re-stamp via sacp.stamp_checksum(pkg) after mutating simulation.last_sessions/inspector.last_reports keeps the X-SACP-Checksum header consistent with the JSON body's package_metadata.checksum on download — verified equal in the new test.",
+    "Cap of 5 enforced at the Mongo cursor level (.limit(5)) and confirmed by the test that inserts 6 sessions + 6 reports and asserts len == 5.",
+    "test_round4 ordering fix is the right pattern: DELETE the cache first, populate two distinct entries, then assert >=2 — independent of any sibling test. Confirmed pytest -n auto passes 62/62.",
+    "Frontend logo uses object-contain + fixed h-9/w-9 + shrink-0, so the 1254×1254 source renders crisply at any DPI without layout shift. Alt text is 'STANDAILONE' (accessibility OK).",
+    "Minor (carried from Round 6): the SACP schema still doesn't have a documented home for target_hp in the section list — Round 7 didn't claim to fix this and engine.target_hp is now the working answer; verified round-trips at 700.0."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_round7_sacp_embed.py (NEW — 7 SACP-embedding regression tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (62/62 serially; 62/62 under pytest -n auto)",
+    "frontend": "100% (logo asset loads from CDN, brand-home-link navigation works from sub-page → /)"
+  },
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "Tests create+cleanup TEST_R7_EMBED + TEST_R7_FRESH profiles via /api/starter-tune/generate + /api/profiles + /api/packages DELETE. Round-trip test cleans up the imported '(imported)' copy in a try/finally. Leftover TEST_* profiles from prior iterations also cleaned during this run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full backend suite is now 62 tests (added 7 in test_round7_sacp_embed.py). Run all: `cd /app/backend && REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest tests/ -o addopts=''` → 62 passed. Parallel: same with -n auto → 62 passed (test_round4 cache-stats ordering bug fully fixed via self-contained populate). Key endpoints to remember: POST /api/profiles/{id}/diagsim/run (body {scenario, seed}), POST /api/profiles/{id}/inspector/audit (no body), GET /api/packages/{id} returns SACP shape with simulation.last_sessions/inspector.last_reports embedded, GET /api/packages/{id}/download returns the same JSON serialized + X-SACP-Checksum header, POST /api/packages/upload returns SACP shape (use response['package_metadata']['package_id'] for new id, NOT response['id']). Embedded sessions exclude 'samples'; embedded reports exclude 'findings'; both lists are sorted desc and capped at 5. Logo: top-bar contains brand-home-link → href='/' wrapping brand-logo (img, src on customer-assets.emergentagent.com).",
+  "rca of the issue": "N/A — no blocking bugs found. All three Round 7 polish items work as specified."
+}

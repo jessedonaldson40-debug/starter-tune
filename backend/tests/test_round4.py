@@ -118,6 +118,14 @@ def test_cache_key_isolation_different_metadata():
 
 
 def test_cache_stats_endpoint_reports_entries():
+    # Self-contained: populate at least 2 distinct entries before asserting stats,
+    # so this test passes regardless of xdist worker ordering.
+    requests.delete(f"{API}/inspector/explain-cache")
+    _stream_explain(SAMPLE_BODY)
+    body2 = copy.deepcopy(SAMPLE_BODY)
+    body2["engine_metadata"]["target_hp"] = 999
+    _stream_explain(body2)
+
     stats = requests.get(f"{API}/inspector/explain-cache/stats").json()
     assert "entries" in stats and "max" in stats
     assert stats["max"] == 64
