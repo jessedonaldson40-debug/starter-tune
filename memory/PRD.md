@@ -22,17 +22,20 @@ Build a production-grade full-stack web application module called STANDAILONE ST
 - Handoff to DIAG-SIM / Tune Inspector Pro / Forensic Inspector / ECU
 - Industrial / engineering UI (graphite + gunmetal, sharp corners, monospace technical readouts)
 
-## What's been implemented (initial release + Round 2 + Round 3 + Round 4 polish)
+## What's been implemented (initial release + Rounds 2–7)
 
-### Round 4 — Final polish (Feb 2026)
-- **Testid alignment**: `ExplainFinding` now uses `${testId}-btn` for the button and `${testId}-out` for the output container so selectors like `[data-testid$="-btn"]` and `[data-testid$="-out"]` cleanly differentiate them.
-- **AI explanation cache**: in-memory LRU (max 64 entries) keyed by SHA-1 of `finding code + message + remediation + engine_metadata + safety_envelope`. Repeat clicks replay cached tokens in 32-char chunks (~6.6× faster than the live LLM call). Exposed `GET /api/inspector/explain-cache/stats` and `DELETE /api/inspector/explain-cache` for diagnostics/reset. Cache is process-local (acceptable per spec).
-- **SSE heartbeat**: live LLM streams emit an `event: ping` frame every 8 tokens for proxy keepalive. Frontend silently ignores unknown event types so no UI changes were needed.
+### Round 7 — Brand + Test Isolation + SACP Inline References
+- **STANDAILONE logo** wired into topbar (replaces the blue accent bar). Renders from CDN, `brand-logo` testid, `brand-home-link` still navigates to `/`.
+- **`test_round4::test_cache_stats_endpoint_reports_entries`** refactored to be self-contained — clears the cache and populates 2 distinct entries before asserting. Now passes in isolation **and** under `pytest -n auto`.
+- **SACP `simulation.last_sessions` + `inspector.last_reports`** now embed inline (latest 5 of each) when a package is fetched or downloaded. Bulky fields (`samples`, `findings`) are projected out at the Mongo cursor for size; checksum is re-stamped after embedding. A downloaded `.sacp` ships with the most recent telemetry + audit references, not just foreign-key pointers.
 
-### Round 3 — UX polish + maintainability + AI Explainer
-- ExportPanel keeps modal open through sequential exports with SESSION ARTIFACTS list and per-row OPEN/DOWNLOAD actions.
-- `/export/{target}` refactored into per-target async helpers dispatched via `EXPORT_HANDLERS`.
-- `POST /api/inspector/findings/explain` streams plain-English explanations from Claude Sonnet 4.6 via SSE using Emergent Universal LLM key.
+### Round 6 — STANDAILONE Calibration Package (SACP) v1.0.0
+- Versioned canonical schema with 15 sections, SHA-256 checksum, `.sacp` / `.standalone` extensions.
+- `/api/packages/*` endpoints: schema introspection, list, get, download, upload (with validation + migration), duplicate, rename, notes add/delete, delete.
+- New SACP tab in profile detail + "Import .sacp" button on dashboard.
+
+### Round 5 — Code Organization Refactor
+- Extracted AI explainer + cache into `/app/backend/explainer.py` (`register_routes` pattern). `server.py` slimmed from 765 → 604 lines.
 
 ### Backend (`/app/backend/`)
 - `calibration.py` — engineering core (VE / fuel / ignition / boost / idle / cold-start / safety envelope / confidence / knock-pull zones)
