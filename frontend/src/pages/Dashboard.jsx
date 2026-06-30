@@ -4,6 +4,7 @@ import { listProfiles, deleteProfile } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/PanelHeader";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
+import { ImportPackageButton } from "@/components/PackagePanel";
 import { fmt } from "@/lib/format";
 import { Plus, Trash2, ArrowUpRight, Cpu, Gauge, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +59,7 @@ export default function Dashboard() {
               <Plus className="w-4 h-4 mr-2" />
               Generate Starter Tune
             </Button>
+            <ImportPackageButton onImported={(id) => navigate(`/profiles/${id}`)} />
             <span className="font-mono text-[10px] text-[var(--st-text-muted)] uppercase tracking-widest text-right">
               CONSERVATIVE · CREDIBLE · TRACEABLE
             </span>

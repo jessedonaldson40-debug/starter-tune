@@ -49,3 +49,17 @@ export const getInspectorReport = (reportId) =>
   api.get(`/inspector/reports/${reportId}`).then(r => r.data);
 export const listProfileInspectorReports = (profileId) =>
   api.get(`/profiles/${profileId}/inspector/reports`).then(r => r.data);
+
+// ---- SACP (Universal Calibration Package) ----
+export const getPackageSchema = () => api.get("/packages/schema").then(r => r.data);
+export const listPackages = () => api.get("/packages").then(r => r.data);
+export const getPackage = (id) => api.get(`/packages/${id}`).then(r => r.data);
+export const downloadPackageUrl = (id) => `${API}/packages/${id}/download`;
+export const uploadPackage = (payload) => api.post("/packages/upload", payload).then(r => r.data);
+export const duplicatePackage = (id) => api.post(`/packages/${id}/duplicate`).then(r => r.data);
+export const renamePackage = (id, name) =>
+  api.patch(`/packages/${id}/rename`, { name }).then(r => r.data);
+export const addPackageNote = (id, text, author = "user") =>
+  api.post(`/packages/${id}/notes`, { text, author }).then(r => r.data);
+export const deletePackageNote = (id, noteId) =>
+  api.delete(`/packages/${id}/notes/${noteId}`).then(r => r.data);

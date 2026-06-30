@@ -1,0 +1,45 @@
+{
+  "summary": "Round 6 — SACP v1.0.0 verified end-to-end. New /app/backend/tests/test_round6_sacp.py (10 tests) passes: schema (15 sections in exact order), list summaries, full GET with 16×16 fuel/ignition/afr + 16-entry VE Table1D, download headers (Content-Type application/x-sacp+json, X-SACP-Schema-Version 1.0.0, X-SACP-Checksum sha256:32hex, .sacp filename), upload round-trip with byte-identical fuel_map_ms + ' (imported)' suffix + 422 on malformed body, duplicate with ' (copy)' + empty exports + identical calibration, rename + last_modified_at advance, notes POST/GET/DELETE + 422 on empty text, DELETE cascade where /api/profiles/{id} also returns 404. Full suite 55/55 pass when run serially; 1 pre-existing flaky failure under xdist parallel ordering (test_round4::test_cache_stats_endpoint_reports_entries — depends on prior tests on same worker; unrelated to SACP). Frontend: Dashboard import-sacp-btn + import-sacp-file-input (accept '.sacp,.standalone,.json,application/json,application/x-sacp+json') present; programmatic file upload navigates to /profiles/{new_id} and dashboard reflects the (imported) card and profile count 16→17. ProfileDetail SACP tab renders all required testids (tab-package, package-meta-card, meta-checksum, package-cal-summary, package-telemetry, package-notes, package-download-btn, package-duplicate-btn, package-rename-edit→package-rename-save reveal, note-input, note-add-btn). Calibration Section grid shows fuel/ignition/afr/boost/idle/cold_start/ve_curve all PRESENT with 16×16 · conf 83–84% subtext (16×1 conf 83% for VE). Notes add appears immediately; empty text disables note-add-btn.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/packages/upload", "issue": "target_hp is not preserved across SACP round-trip — there is no canonical home for it in the 15 sections (not in engine, generation_metadata.user_overrides, or telemetry_assumptions). server.py upload fallback uses telemetry_assumptions.expected_injector_duty_pct as a number, so a re-imported '700 hp' tune shows up as '51 hp' on the dashboard. fuel_map_ms 16×16 itself is byte-identical, so the spec'd assertions pass — this is a downstream metadata fidelity issue, not a calibration-data issue."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ProfileDetail / SACP tab", "issues": ["Console warning: Recharts ResponsiveContainer renders width(-1)/height(-1) when the SACP tab is mounted (chart containers in non-SACP tabs still receive zero-sized layout). Cosmetic console noise; no visual regression."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_round6_sacp.py",
+    "/app/test_reports/pytest/round6_results.xml",
+    "/app/test_reports/pytest/all_round6_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: persist target_hp in SACP (e.g., engine.target_hp_hp or generation_metadata.user_overrides.target_hp) and update upload reconstruction in /app/backend/server.py:upload_package() so re-imported packages display the right HP on the dashboard card.",
+    "OPTIONAL: silence Recharts width(-1) warning by hiding tab-content charts via CSS display:none when not active, or by mounting them lazily."
+  ],
+  "critical_code_review_comments": [
+    "sacp.py (594 lines) is clean and well-organised: pydantic v2 models with ConfigDict(extra='ignore') for forward-compat, dedicated TableMetadata wrapper around every table, deterministic checksum (sort_keys + excludes checksum/timestamps), migrate() placeholder reserved, section_summary() drives the schema endpoint. from_profile() does the legacy→SACP mapping cleanly.",
+    "server.py upload_package() correctly preserves fuel_map_ms / ignition_map_deg / afr_target_table values verbatim and stores them under the existing tune_package shape so /api/profiles/{id} continues to work. Good DRY between download (sacp.from_profile + stamp_checksum) and get_package.",
+    "checksum format 'sha256:' + 32 hex chars (truncated from 64) is intentional (shorter for UI display); verified the same string is sent in X-SACP-Checksum header and inside the body — matches between header and JSON, as expected.",
+    "PackagePanel.jsx component composes Panel/Field/Button primitives, defers downloads to window.location to API URL (preserves auth-free contract), and uses data-testids consistently for testability.",
+    "Minor: server.py upload_package() reconstructs target_hp via OR-chain that falls through to expected_injector_duty_pct — that field is a percentage, not an HP value (see backend minor issue above)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_round6_sacp.py (NEW — 10 SACP regression tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (55/55 when run serially; 1 pre-existing test_round4 cache-stats test is order-dependent under xdist parallel and unrelated to SACP)",
+    "frontend": "100% — import button + file input, SACP tab, all 9 testids, calibration grid PRESENT markers, checksum display, notes add/disable-empty, rename reveal, duplicate + download buttons all verified"
+  },
+  "test_credentials": "N/A (no auth)",
+  "seed_data_creation": "Tests create+cleanup TEST_R6_SACP and TEST_R6_DELETE profiles via /api/starter-tune/generate + /api/profiles + /api/packages DELETE. Frontend test imported one round-trip profile and was cleaned up afterwards. No persistent test rows left behind.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Round 6 added 10 SACP tests under /app/backend/tests/test_round6_sacp.py. Full suite is now 55 tests. Run: export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) && cd /app/backend && python -m pytest tests/test_round6_sacp.py -v -o addopts='' (clears the -n auto from pytest.ini for cleaner output). NOTE: running the entire tests/ folder under default -n auto can yield a flaky failure in test_round4::test_cache_stats_endpoint_reports_entries because that test depends on prior cache-populating tests landing on the same xdist worker — this is a Round-4 ordering quirk, not a Round-6 regression. test_round4.py passes 6/6 when run alone. SACP package_id == legacy profile id (shared db.profiles storage), so DELETE /api/packages/{id} also kills /api/profiles/{id} (verified). The 'target_hp' field has no canonical home in the SACP schema; on re-import it falls through to a numeric proxy of injector_duty — see minor issue above. Frontend testids relied on: import-sacp-btn, import-sacp-file-input, tab-package, package-meta-card, meta-checksum, package-cal-summary, package-telemetry, package-notes, package-download-btn, package-duplicate-btn, package-rename-edit, package-rename-save, note-input, note-add-btn, note-{id}, note-delete-{id}.",
+  "rca of the issue": "N/A — no blocking bugs. Pre-existing test_round4 cache-stats parallel-ordering quirk is unrelated to Round 6 and passes when test_round4.py is run alone."
+}

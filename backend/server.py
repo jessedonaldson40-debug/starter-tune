@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ import calibration as cal
 import diagsim
 import inspector
 import explainer
+import sacp
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -583,6 +585,263 @@ async def export_profile(profile_id: str, target: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 explainer.register_routes(api_router)
+
+
+# ============================================================================
+# SACP — universal StandAIlone Calibration Package
+# Every application in the ecosystem reads + writes this single object.
+# Backed by the same db.profiles storage; exposed as a versioned SACP via
+# /api/packages/* routes (canonical) while /api/profiles/* stays as the
+# legacy-shape alias for existing consumers.
+# ============================================================================
+
+class PackageNoteRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    text: str = Field(..., min_length=1, max_length=4000)
+    author: Optional[str] = "user"
+    section_anchor: Optional[str] = None
+
+
+class PackageRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+@api_router.get("/packages/schema")
+async def package_schema() -> dict[str, Any]:
+    """Schema introspection — version + section list."""
+    return sacp.section_summary()
+
+
+@api_router.get("/packages")
+async def list_packages() -> list[dict[str, Any]]:
+    cur = db.profiles.find(
+        {},
+        {"_id": 0, "id": 1, "name": 1, "created_at": 1, "updated_at": 1,
+         "engine_metadata": 1, "active_generation_index": 1, "exports": 1},
+    ).sort("created_at", -1)
+    rows = await cur.to_list(500)
+    summary = []
+    for r in rows:
+        intake = r.get("engine_metadata", {})
+        summary.append({
+            "package_id": r["id"],
+            "name": r.get("name", "Untitled"),
+            "created_at": r.get("created_at"),
+            "last_modified_at": r.get("updated_at"),
+            "schema_version": sacp.SACP_SCHEMA_VERSION,
+            "displacement_l": intake.get("displacement_l"),
+            "cylinders": intake.get("cylinders"),
+            "induction": intake.get("induction"),
+            "fuel_type": intake.get("fuel_type"),
+            "target_hp": intake.get("target_hp"),
+            "active_generation_index": r.get("active_generation_index", 0),
+            "export_count": len(r.get("exports") or []),
+        })
+    return summary
+
+
+async def _load_profile_or_404(package_id: str) -> dict[str, Any]:
+    doc = await db.profiles.find_one({"id": package_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Package not found")
+    return doc
+
+
+@api_router.get("/packages/{package_id}")
+async def get_package(package_id: str) -> dict[str, Any]:
+    doc = await _load_profile_or_404(package_id)
+    return sacp.from_profile(doc)
+
+
+@api_router.get("/packages/{package_id}/download")
+async def download_package(package_id: str):
+    from fastapi.responses import Response
+    doc = await _load_profile_or_404(package_id)
+    pkg = sacp.from_profile(doc)
+    name = (pkg.get("package_metadata", {}).get("name") or "package")
+    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in name)[:60]
+    filename = f"{safe}_{package_id[:8]}{sacp.SACP_FILE_EXTENSION}"
+    body = json.dumps(pkg, indent=2, default=str)
+    return Response(
+        content=body,
+        media_type="application/x-sacp+json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-SACP-Schema-Version": sacp.SACP_SCHEMA_VERSION,
+            "X-SACP-Checksum": pkg["package_metadata"]["checksum"] or "",
+        },
+    )
+
+
+@api_router.post("/packages/upload")
+async def upload_package(payload: dict[str, Any]) -> dict[str, Any]:
+    """Import a SACP. Validates schema, migrates if older, persists as a new profile.
+    Returns the canonical package back."""
+    try:
+        migrated = sacp.migrate(payload)
+        validated = sacp.validate(migrated)
+    except Exception as e:
+        raise HTTPException(422, f"Invalid SACP package: {e}")
+
+    pkg_dict = validated.model_dump()
+    eng = pkg_dict["engine"]
+    cal_section = pkg_dict.get("calibration", {})
+    safety = pkg_dict.get("safety_envelope", {})
+
+    # Reconstruct legacy intake from SACP engine + hardware
+    intake = {
+        "displacement_l": eng["displacement_l"],
+        "cylinders": eng["cylinder_count"],
+        "induction": eng["induction_type"],
+        "fuel_type": eng["fuel_type"],
+        "target_hp": float(pkg_dict.get("generation_metadata", {}).get("user_overrides", {}).get("target_hp")
+                          or pkg_dict.get("telemetry_assumptions", {}).get("expected_injector_duty_pct")
+                          or 300),
+        "rev_limit": eng["rev_limit"],
+        "injector_cc": eng.get("injector_size_cc") or 440,
+        "compression_ratio": eng.get("compression_ratio") or 10.0,
+        "ethanol_pct": eng.get("ethanol_pct"),
+        "intercooler_class": (pkg_dict.get("hardware") or {}).get("intercooler_class") or "Stock",
+        "spool_rpm": ((eng.get("turbo") or {}) or {}).get("spool_rpm") or 3000,
+        "intended_use": "street",
+    }
+
+    fuel_t = (cal_section.get("fuel_table") or {})
+    ign_t = (cal_section.get("ignition_table") or {})
+    afr_t = (cal_section.get("afr_target_table") or {})
+    rpm_axis = fuel_t.get("axis_rpm") or ign_t.get("axis_rpm") or cal.RPM_AXIS
+    load_axis = fuel_t.get("axis_load_kpa") or ign_t.get("axis_load_kpa") or cal.NA_LOAD_AXIS
+
+    rebuilt_tune = {
+        "axes": {
+            "rpm": rpm_axis,
+            "load_kpa": load_axis,
+            "clt": cal.CLT_AXIS,
+            "idle_rpm": cal.IDLE_RPM_AXIS,
+        },
+        "ve_curve": pkg_dict.get("telemetry_assumptions", {}).get("expected_ve_curve") or [],
+        "afr_target_table": afr_t.get("values") or [],
+        "fuel_map_ms": fuel_t.get("values") or [],
+        "ignition_map_deg": ign_t.get("values") or [],
+        "boost_target_table": cal_section.get("boost_target_table"),
+        "idle_table": cal_section.get("idle_tables") or {},
+        "cold_start_table": cal_section.get("cold_start_tables") or {},
+        "safety_envelope": {
+            "afr_min": safety.get("min_afr"),
+            "afr_max": safety.get("max_afr"),
+            "ignition_ceiling": safety.get("max_ignition_deg"),
+            "boost_ceiling_kpa": safety.get("max_boost_kpa"),
+            "torque_baseline_nm": safety.get("max_estimated_torque_nm"),
+            "knock_sensitivity": safety.get("knock_risk", "moderate"),
+            "thermal_risk": safety.get("thermal_risk", "moderate"),
+            "injector_headroom_pct": safety.get("fuel_system_margin_pct", 0),
+            "fuel_system_adequate": True,
+            "warnings": safety.get("warnings", []),
+            "confidence": safety.get("overall_safety_confidence", 0.5),
+        },
+        "confidence": pkg_dict.get("confidence", {}),
+        "predicted_hp": {"low": intake["target_hp"] * 0.85, "nominal": intake["target_hp"], "high": intake["target_hp"] * 1.15},
+        "assumptions": pkg_dict.get("generation_metadata", {}).get("hardware_assumptions", []),
+        "adjustments_applied": pkg_dict.get("generation_metadata", {}).get("adjustments_applied", {}),
+        "algorithm_version": pkg_dict.get("generation_metadata", {}).get("generation_algorithm", "imported"),
+    }
+
+    new_id = str(uuid.uuid4())
+    now = _now_iso()
+    name = pkg_dict["package_metadata"].get("name") or "Imported Package"
+
+    profile = {
+        "id": new_id,
+        "name": f"{name} (imported)",
+        "created_at": now,
+        "updated_at": now,
+        "vehicle_metadata": pkg_dict.get("vehicle", {}),
+        "engine_metadata": intake,
+        "intended_use": "street",
+        "generated_by": "sacp-import",
+        "active_generation_index": 0,
+        "history": [{
+            "generation_index": 0,
+            "created_at": now,
+            "note": f"Imported from SACP {pkg_dict['package_metadata'].get('checksum', '')[:16]}",
+            "intake": intake,
+            "adjustments": {},
+            "tune_package": rebuilt_tune,
+        }],
+        "exports": [],
+        "notes": pkg_dict.get("notes") or [],
+    }
+    await db.profiles.insert_one({**profile})
+    fresh = await db.profiles.find_one({"id": new_id}, {"_id": 0})
+    return sacp.from_profile(fresh)
+
+
+@api_router.post("/packages/{package_id}/duplicate")
+async def duplicate_package(package_id: str) -> dict[str, Any]:
+    src = await _load_profile_or_404(package_id)
+    new_id = str(uuid.uuid4())
+    now = _now_iso()
+    clone = {
+        **{k: v for k, v in src.items() if k != "_id"},
+        "id": new_id,
+        "name": f"{src.get('name', 'Untitled')} (copy)",
+        "created_at": now,
+        "updated_at": now,
+        "exports": [],
+    }
+    await db.profiles.insert_one({**clone})
+    fresh = await db.profiles.find_one({"id": new_id}, {"_id": 0})
+    return sacp.from_profile(fresh)
+
+
+@api_router.patch("/packages/{package_id}/rename")
+async def rename_package(package_id: str, req: PackageRenameRequest) -> dict[str, Any]:
+    res = await db.profiles.update_one(
+        {"id": package_id},
+        {"$set": {"name": req.name, "updated_at": _now_iso()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Package not found")
+    doc = await _load_profile_or_404(package_id)
+    return sacp.from_profile(doc)
+
+
+@api_router.post("/packages/{package_id}/notes")
+async def add_package_note(package_id: str, req: PackageNoteRequest) -> dict[str, Any]:
+    note = {
+        "note_id": str(uuid.uuid4()),
+        "created_at": _now_iso(),
+        "author": req.author or "user",
+        "text": req.text,
+        "section_anchor": req.section_anchor,
+    }
+    res = await db.profiles.update_one(
+        {"id": package_id},
+        {"$push": {"notes": note}, "$set": {"updated_at": _now_iso()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Package not found")
+    return note
+
+
+@api_router.delete("/packages/{package_id}/notes/{note_id}")
+async def delete_package_note(package_id: str, note_id: str) -> dict[str, Any]:
+    res = await db.profiles.update_one(
+        {"id": package_id},
+        {"$pull": {"notes": {"note_id": note_id}}, "$set": {"updated_at": _now_iso()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Package not found")
+    return {"deleted": note_id}
+
+
+@api_router.delete("/packages/{package_id}")
+async def delete_package(package_id: str) -> dict[str, Any]:
+    res = await db.profiles.delete_one({"id": package_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Package not found")
+    return {"deleted": package_id}
 
 
 # ============================================================================

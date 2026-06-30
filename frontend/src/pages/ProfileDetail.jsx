@@ -8,8 +8,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ConfidenceBadge from "@/components/ConfidenceBadge";
 import WarningBanner from "@/components/WarningBanner";
 import ExportPanel from "@/components/ExportPanel";
+import PackagePanel from "@/components/PackagePanel";
 import { fmt } from "@/lib/format";
-import { ArrowLeft, Download, GitCompareArrows, History, RefreshCw, RotateCcw, Layers, Activity, FileSearch, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, Download, GitCompareArrows, History, RefreshCw, RotateCcw, Layers, Activity, FileSearch, ArrowUpRight, Package as PackageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip as RTooltip } from "recharts";
 
@@ -122,6 +123,9 @@ export default function ProfileDetail() {
           </TabsTrigger>
           <TabsTrigger value="envelope" data-testid="tab-envelope" className="rounded-none font-mono text-[11px] uppercase tracking-widest data-[state=active]:bg-[var(--st-panel-raised)] data-[state=active]:text-[var(--st-accent)] data-[state=active]:shadow-none h-10 px-5">
             Safety Envelope
+          </TabsTrigger>
+          <TabsTrigger value="package" data-testid="tab-package" className="rounded-none font-mono text-[11px] uppercase tracking-widest data-[state=active]:bg-[var(--st-panel-raised)] data-[state=active]:text-[var(--st-accent)] data-[state=active]:shadow-none h-10 px-5">
+            <PackageIcon className="w-3.5 h-3.5 mr-2" /> SACP
           </TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-history" className="rounded-none font-mono text-[11px] uppercase tracking-widest data-[state=active]:bg-[var(--st-panel-raised)] data-[state=active]:text-[var(--st-accent)] data-[state=active]:shadow-none h-10 px-5">
             <History className="w-3.5 h-3.5 mr-2" /> Generation History
@@ -277,6 +281,15 @@ export default function ProfileDetail() {
               {tune.assumptions.map((a, i) => <li key={i}>{a}</li>)}
             </ul>
           </Panel>
+        </TabsContent>
+
+        <TabsContent value="package" className="space-y-4 mt-0">
+          <PackagePanel
+            packageId={profile.id}
+            profile={profile}
+            onRefresh={refresh}
+            onDuplicated={(newId) => navigate(`/profiles/${newId}`)}
+          />
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4 mt-0">
